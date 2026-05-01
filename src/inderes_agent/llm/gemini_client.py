@@ -22,6 +22,7 @@ import logging
 from typing import Any
 
 from agent_framework_gemini import GeminiChatClient
+from google.genai import types as genai_types
 
 from ..settings import Settings, get_settings
 
@@ -71,6 +72,37 @@ class FallbackGeminiChatClient(GeminiChatClient):
         # Verified: GeminiChatClient stores model on self.model.
         self.model = model
         self.last_used_model = model
+
+    # ------------------------------------------------------------------
+    # Hybrid tool-config fix: when an agent's tool list mixes server-side
+    # built-ins (e.g. code_execution) with client-side function-calling tools
+    # (e.g. MCP), the Gemini API rejects the request unless we set
+    # `tool_config.include_server_side_tool_invocations=True`. The base
+    # GeminiChatClient builds tool_config only from the user's `tool_choice`
+    # and never adds this flag. We override `_prepare_config` to inject it
+    # whenever the resolved tool list contains a server-side tool.
+    # ------------------------------------------------------------------
+
+    def _has_server_side_tool(self, options) -> bool:
+        for t in options.get("tools") or []:
+            if isinstance(t, genai_types.Tool):
+                if t.code_execution is not None:
+                    return True
+                if getattr(t, "google_search", None) is not None:
+                    return True
+                if getattr(t, "google_maps", None) is not None:
+                    return True
+                if getattr(t, "url_context", None) is not None:
+                    return True
+        return False
+
+    def _prepare_config(self, options, system_instruction):  # type: ignore[override]
+        config = super()._prepare_config(options, system_instruction)
+        if self._has_server_side_tool(options):
+            tool_config = config.tool_config or genai_types.ToolConfig()
+            tool_config.include_server_side_tool_invocations = True
+            config.tool_config = tool_config
+        return config
 
     def get_response(self, messages, *args: Any, **kwargs: Any):  # type: ignore[override]
         """Override sync entry point. Routes through the fallback handler."""
