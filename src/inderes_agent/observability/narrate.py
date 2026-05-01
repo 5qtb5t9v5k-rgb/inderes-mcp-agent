@@ -141,6 +141,14 @@ def _short_summary(text: str, max_chars: int = 400) -> str:
     return text[:max_chars].rstrip() + " …"
 
 
+# Per-subagent text in narrative.md is shown in full (no truncation). The text
+# may contain code-execution sandbox transcripts (Python source + printed output
+# + the agent's own commentary) which can run to several thousand characters —
+# truncating these defeats the forensic purpose of the narrative. The compact
+# in-terminal trace (in render.py) keeps a tighter cap because it is a glance,
+# not a record.
+
+
 def summarize_run(run_dir: Path) -> str:
     """Produce a human-readable narrative for one run."""
     query = (run_dir / "query.txt").read_text(encoding="utf-8").strip() if (run_dir / "query.txt").exists() else "(unknown)"
@@ -197,8 +205,10 @@ def summarize_run(run_dir: Path) -> str:
             if err:
                 lines.append(f"❌ **virhe:** {err}")
             else:
+                # Full text in the narrative — no truncation. See note above.
+                text = (sa.get("text") or "").strip() or "_(empty response)_"
                 lines.append("```")
-                lines.append(_short_summary(sa.get("text", ""), max_chars=900))
+                lines.append(text)
                 lines.append("```")
             lines.append("")
 
