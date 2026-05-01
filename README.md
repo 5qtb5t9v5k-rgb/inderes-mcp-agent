@@ -18,6 +18,7 @@ its own. The user makes the decision; the agent shows them the data.
 
 > **Documentation map**
 > - [`ARCHITECTURE.md`](ARCHITECTURE.md) — design, components, lifecycle, key decisions
+> - [`AGENT_FRAMEWORK.md`](AGENT_FRAMEWORK.md) — Microsoft Agent Framework primer + which features we use
 > - [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — every error encountered, with fix
 > - [`CHANGELOG.md`](CHANGELOG.md) — version history and design rationale
 > - [`CONTRIBUTING.md`](CONTRIBUTING.md) — developer setup, testing, extending
