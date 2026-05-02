@@ -142,3 +142,90 @@ def test_empty_response_returns_empty_text(tmp_path):
 
     md, _ = extract_parts(EmptyResponse(), run_dir=tmp_path, agent_label="quant")
     assert md == ""
+
+
+# ---------------------------------------------------------------------------
+# raw_representation-based classification (the agent_framework_gemini path)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class FakeGeminiPart:
+    """Mimics google.genai's Part: only one of these fields is set per part."""
+
+    text: str | None = None
+    executable_code: object | None = None
+    code_execution_result: object | None = None
+
+
+@dataclass
+class _ECode:
+    code: str = ""
+
+
+@dataclass
+class _ERes:
+    output: str = ""
+
+
+def _text_part(text: str, *, raw: FakeGeminiPart | None = None) -> FakeContent:
+    c = FakeContent(type="text", text=text)
+    if raw is not None:
+        # Simulate raw_representation attribute that agent_framework_gemini sets.
+        object.__setattr__(c, "raw_representation", raw)
+    return c
+
+
+def test_executable_code_wrapped_as_python_block(tmp_path):
+    code = "x = 1\nprint(x)"
+    raw = FakeGeminiPart(executable_code=_ECode(code=code))
+    response = FakeResponse(messages=[FakeMessage(contents=[_text_part(code, raw=raw)])])
+    md, _ = extract_parts(response, run_dir=tmp_path, agent_label="quant")
+    assert md.startswith("```python\n")
+    assert md.rstrip().endswith("```")
+    assert "x = 1" in md
+
+
+def test_code_execution_result_wrapped_as_plain_block(tmp_path):
+    output = "Result: 42"
+    raw = FakeGeminiPart(code_execution_result=_ERes(output=output))
+    response = FakeResponse(messages=[FakeMessage(contents=[_text_part(output, raw=raw)])])
+    md, _ = extract_parts(response, run_dir=tmp_path, agent_label="quant")
+    assert md.startswith("```\n")
+    assert "Result: 42" in md
+
+
+def test_plain_text_passes_through(tmp_path):
+    response = FakeResponse(messages=[FakeMessage(contents=[
+        _text_part("Hello, world.", raw=FakeGeminiPart(text="Hello, world.")),
+    ])])
+    md, _ = extract_parts(response, run_dir=tmp_path, agent_label="quant")
+    assert md == "Hello, world."
+    assert "```" not in md
+
+
+def test_dangling_image_ref_stripped(tmp_path):
+    """Agent-written ![](filename.png) where filename.png isn't an extracted image."""
+    response = FakeResponse(messages=[FakeMessage(contents=[
+        _text_part("Tässä kuvaaja: ![chart](revenue_comparison.png) Loppu."),
+    ])])
+    md, images = extract_parts(response, run_dir=tmp_path, agent_label="quant")
+    assert images == []
+    assert "![chart]" not in md
+    assert "Tässä kuvaaja:" in md
+    assert "Loppu." in md
+
+
+def test_real_image_ref_preserved(tmp_path):
+    """A ![](images/quant-1.png) ref pointing to an actually-saved image is kept."""
+    fake_png = b"\x89PNG\r\n"
+    response = FakeResponse(messages=[FakeMessage(contents=[
+        _text_part("Look:"),
+        FakeContent(
+            type="data",
+            media_type="image/png",
+            uri=_data_uri("image/png", fake_png),
+        ),
+    ])])
+    md, images = extract_parts(response, run_dir=tmp_path, agent_label="quant")
+    assert images == ["images/quant-1.png"]
+    assert "![chart](images/quant-1.png)" in md

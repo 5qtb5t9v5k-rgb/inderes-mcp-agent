@@ -1,18 +1,24 @@
 """Extract structured rendering from an `AgentResponse`.
 
-MAF's `AgentResponse.text` flattens all content parts (including code, code-output
-and image data URIs) into a single string. For our display surfaces we want to
-keep these structured: code rendered as fenced ```python``` blocks, code output
-in a plain code fence, image data saved to disk and referenced by markdown
-image syntax.
+`agent_framework_gemini` collapses Gemini's distinct response parts into plain
+`Content.from_text(...)` objects:
+  - `executable_code` (the Python the model wanted to run) → text
+  - `code_execution_result.output` (the stdout)            → text
+  - `inline_data` (matplotlib figures etc.)                → DROPPED entirely
 
-This module walks `response.messages[*].contents[*]` and produces:
-- a single markdown string suitable for display in Streamlit / `narrative.md`
-- a list of saved image file paths (relative to `run_dir`)
+That collapse is the reason `result.text` produces an unstructured blob with
+code, output and prose merged together. To recover structure we inspect each
+Content's `raw_representation` (the original Gemini `Part`) and re-wrap:
+  - executable_code  → ```python ... ```
+  - execution result → ``` ... ```
+  - actual text      → rendered as-is
 
-Function-call / function-result parts (MCP tool invocations) are intentionally
-skipped — they are noise from the user's perspective and already captured in
-`console.log` for forensic review.
+Images cannot currently be recovered: `agent_framework_gemini` doesn't surface
+`inline_data` parts at all. Sandboxed `plt.show()` figures are lost upstream.
+We compensate by stripping any `![alt](filename)` markdown that the agent
+wrote referencing files it `savefig()`'d into the sandbox FS — those would
+render as broken icons in Streamlit. If we ever capture inline_data properly,
+this stripping can be relaxed.
 """
 
 from __future__ import annotations
@@ -24,10 +30,10 @@ from typing import Any
 
 
 _DATA_URI_RE = re.compile(r"^data:(?P<media>[^;,]+)(;base64)?,(?P<payload>.*)$", re.DOTALL)
+_IMG_REF_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)\s*")
 
 
 def _extension_for(media_type: str) -> str:
-    """Map common image MIME types to file extensions; default to last segment."""
     return {
         "image/png": "png",
         "image/jpeg": "jpg",
@@ -38,7 +44,6 @@ def _extension_for(media_type: str) -> str:
 
 
 def _save_image(uri: str, target: Path) -> bool:
-    """Decode a `data:image/...;base64,...` URI and write to `target`. Returns success."""
     m = _DATA_URI_RE.match(uri or "")
     if not m:
         return False
@@ -51,30 +56,49 @@ def _save_image(uri: str, target: Path) -> bool:
         return False
 
 
+def _classify_text_content(content: Any) -> str:
+    """Inspect raw_representation to classify a 'text' Content.
+
+    Returns one of: 'code', 'code_output', 'text'.
+    """
+    raw = getattr(content, "raw_representation", None)
+    if raw is None:
+        return "text"
+    # Gemini Part objects have these optional fields.
+    if getattr(raw, "executable_code", None) is not None:
+        return "code"
+    if getattr(raw, "code_execution_result", None) is not None:
+        return "code_output"
+    return "text"
+
+
+def _strip_dangling_image_refs(text: str, kept_images: list[str]) -> str:
+    """Remove `![alt](path)` references that don't point to a known image file.
+
+    Agents using `plt.savefig('foo.png')` then writing `![chart](foo.png)` create
+    references to files that exist only inside the sandbox. Those would render
+    as broken icons. We keep references whose path appears in `kept_images`
+    (the images we actually extracted and saved).
+    """
+    kept_set = {str(p) for p in kept_images}
+
+    def _keep_or_strip(m: re.Match[str]) -> str:
+        path = m.group(1).strip()
+        return m.group(0) if path in kept_set else ""
+
+    return _IMG_REF_RE.sub(_keep_or_strip, text)
+
+
 def extract_parts(
     response: Any,
     *,
     run_dir: Path,
     agent_label: str,
 ) -> tuple[str, list[str]]:
-    """Walk the response's content parts and return (markdown, image_paths).
-
-    Args:
-        response: An `AgentResponse` (or anything with `.messages` -> `.contents`).
-        run_dir: The per-run directory where extracted images will be saved
-            under `<run_dir>/images/`. Images are referenced by relative path.
-        agent_label: Used to namespace saved image filenames so multiple agents
-            in the same run don't collide. Typical: "quant", "research-Sampo".
-
-    Returns:
-        - markdown: a string with text, code blocks and image references in order
-        - image_paths: list of paths (strings, relative to run_dir) of saved images
-
-    Falls back to `response.text` if the response shape is unexpected.
-    """
+    """Walk the response's content parts and return (markdown, image_paths)."""
     messages = getattr(response, "messages", None)
     if messages is None:
-        return _fallback_text(response), []
+        return _strip_dangling_image_refs(_fallback_text(response), []), []
 
     rendered: list[str] = []
     image_paths: list[str] = []
@@ -86,9 +110,31 @@ def extract_parts(
             ctype = getattr(content, "type", None)
 
             if ctype == "text":
-                text = getattr(content, "text", None)
-                if text:
+                text = getattr(content, "text", None) or ""
+                if not text.strip():
+                    continue
+                kind = _classify_text_content(content)
+                if kind == "code":
+                    rendered.append(f"```python\n{text.rstrip()}\n```")
+                elif kind == "code_output":
+                    rendered.append(f"```\n{text.rstrip()}\n```")
+                else:
                     rendered.append(text)
+
+            elif ctype == "data":
+                # Future: when agent_framework_gemini supports inline_data,
+                # images will arrive here. For now this branch may never fire
+                # with the current connector, but kept for forward compat.
+                media = getattr(content, "media_type", "") or ""
+                uri = getattr(content, "uri", "") or ""
+                if media.startswith("image/"):
+                    image_index += 1
+                    ext = _extension_for(media)
+                    rel = f"images/{safe_label}-{image_index}.{ext}"
+                    target = run_dir / rel
+                    if _save_image(uri, target):
+                        image_paths.append(rel)
+                        rendered.append(f"![chart]({rel})")
 
             elif ctype == "code_interpreter_tool_call":
                 code = _join_text_inputs(getattr(content, "inputs", None) or [])
@@ -120,15 +166,14 @@ def extract_parts(
                     if combined:
                         rendered.append(f"```\n{combined}\n```")
 
-            # Skip function_call / function_result / mcp_server_* parts —
-            # they are MCP tool invocations and already in console.log.
-            # text_reasoning, error, usage are also intentionally skipped here;
-            # they belong to telemetry, not the user-facing answer.
+            # function_call / function_result / mcp_server_* / text_reasoning /
+            # error / usage parts intentionally skipped.
 
     md = "\n\n".join(s for s in rendered if s).strip()
     if not md:
-        # Fall back to the flattened representation if nothing structured surfaced.
         md = _fallback_text(response)
+
+    md = _strip_dangling_image_refs(md, image_paths)
     return md, image_paths
 
 
