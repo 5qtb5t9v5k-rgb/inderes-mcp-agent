@@ -338,7 +338,12 @@ def render_agent_output(text: str | None) -> None:
     try:
         from markdown_it import MarkdownIt
 
-        html_content = MarkdownIt().render(text)
+        # `commonmark` preset doesn't include tables — explicitly enable them
+        # so subagent markdown like `| col | col |` renders as <table>, not
+        # raw pipe text. Also enable strikethrough since QUANT/LEAD outputs
+        # occasionally use it.
+        md = MarkdownIt("commonmark").enable(["table", "strikethrough"])
+        html_content = md.render(text)
     except Exception:
         # If markdown_it isn't available for some reason, fall back to a
         # `<pre>` block — formatting is lost but content still readable.

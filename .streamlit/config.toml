@@ -1,0 +1,9 @@
+[theme]
+# Trading Desk theme — keeps Streamlit's own primary-color usages
+# (chat input focus ring, progress bar fill, button accent) on-brand.
+# These match the --ia-* CSS variables in ui/theme.css.
+primaryColor = "#FFD24A"
+backgroundColor = "#0a0e0c"
+secondaryBackgroundColor = "#0f1512"
+textColor = "#c9d4cc"
+font = "monospace"

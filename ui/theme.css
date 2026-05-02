@@ -58,6 +58,23 @@ input:focus, textarea:focus { border-color: var(--ia-amber) !important; }
 }
 [data-testid="stChatInput"] textarea { font-family: var(--ia-mono) !important; }
 
+/* Override Streamlit's default coral/red focus ring on the chat input
+   wrapper. Targets every level of the BaseWeb input shell that picks up
+   the primary-color border on focus-within. */
+[data-testid="stChatInput"] [data-baseweb="textarea"],
+[data-testid="stChatInput"] [data-baseweb="base-input"],
+[data-testid="stChatInput"] > div > div {
+  border-color: var(--ia-border) !important;
+  box-shadow: none !important;
+}
+[data-testid="stChatInput"] [data-baseweb="textarea"]:focus-within,
+[data-testid="stChatInput"] [data-baseweb="base-input"]:focus-within,
+[data-testid="stChatInput"] > div > div:focus-within {
+  border-color: var(--ia-amber) !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
 /* chat message bubbles */
 [data-testid="stChatMessage"] {
   background: var(--ia-panel) !important;

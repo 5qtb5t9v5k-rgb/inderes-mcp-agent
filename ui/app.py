@@ -196,7 +196,7 @@ def _enforce_daily_cap_or_stop() -> None:
 
 _lang = st.session_state.get("ui_lang", "fi")
 render_titlebar(_lang)
-render_ticker()
+# render_ticker() — disabled: distracting, replace with a real feed if/when one's available
 render_disclaimer(_lang)
 
 
