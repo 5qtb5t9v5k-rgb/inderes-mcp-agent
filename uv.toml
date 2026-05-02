@@ -1,0 +1,8 @@
+# uv project-level config. Streamlit Cloud invokes `uv pip install -r requirements.txt`,
+# and uv reads this file from the cwd. The `[tool.uv]` section in pyproject.toml is
+# only consulted when uv treats the project as a workspace, which doesn't happen
+# in `pip install -r` mode — so we duplicate the setting here.
+
+# Allow pre-release versions during resolution. Without this, agent-framework-gemini
+# (alpha) can't be installed and the build fails on cloud.
+prerelease = "allow"

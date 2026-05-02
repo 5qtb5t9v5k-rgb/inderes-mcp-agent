@@ -52,3 +52,11 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "W"]
 ignore = ["E501"]
+
+[tool.uv]
+# Allow pre-release versions during dependency resolution. Required because
+# agent-framework-gemini has no stable release yet — the latest is 1.0.0aN.
+# Without this, uv resolves it to "no matching version" and falls back to a
+# stable agent-framework that's missing symbols the alpha gemini connector
+# imports (BaseChatClient etc.).
+prerelease = "allow"

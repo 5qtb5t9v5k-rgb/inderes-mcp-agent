@@ -1,38 +1,36 @@
-# Streamlit Cloud uses uv pip install. Pre-releases must be allowed because
-# agent-framework-gemini is still alpha and was built against beta versions of
-# agent-framework that ship symbols (BaseChatClient etc.) the latest stable
-# 1.2.2 release does not export. Without --pre, uv resolves agent-framework
-# to 1.2.2 stable and import fails:
-#   ImportError: cannot import name 'BaseChatClient' from 'agent_framework'
---pre
+# Streamlit Cloud uses uv pip install -r requirements.txt.
+#
+# Two pitfalls:
+#   1. uv defaults to stable-only resolution. We need pre-releases because
+#      agent-framework-gemini is still alpha (no stable release exists).
+#      Configured via `[tool.uv] prerelease = "allow"` in pyproject.toml.
+#   2. The PyPI distribution `agent-framework` is a META package containing
+#      only `agent_framework_meta/__init__.py`. The actual `agent_framework`
+#      Python package (with `BaseChatClient` etc.) ships in `agent-framework-core`.
+#      Depending on `agent-framework` is enough to pull `agent-framework-core`
+#      transitively, but be aware that the source code lives in core.
 
-# Core agent stack — pinned to known-compatible betas. Bump these together
-# when a new alpha/beta cycle drops.
-agent-framework==1.0.0b260429
-agent-framework-gemini==1.0.0a260429
-agent-framework-orchestrations==1.0.0b260429
+# Real Python package containing agent_framework/__init__.py
+agent-framework-core
 
-# LLM + protocol
-google-genai>=1.0
-mcp>=1.27.0
+# Optional connectors used by this project (alpha — pre-release allowed)
+agent-framework-gemini
 
-# Pydantic + config
-pydantic>=2
-pydantic-settings>=2
-
-# Logging + CLI rendering (used by inderes_agent.cli even when run from Streamlit)
-structlog>=24
-rich>=13
-prompt_toolkit>=3
-python-dotenv>=1
-httpx>=0.27
-
-# Telemetry
-opentelemetry-api>=1.25
-opentelemetry-sdk>=1.25
+# Direct deps used by inderes_agent
+google-genai
+mcp
+pydantic
+pydantic-settings
+structlog
+rich
+prompt_toolkit
+python-dotenv
+httpx
+opentelemetry-api
+opentelemetry-sdk
 
 # UI
-streamlit>=1.40
+streamlit
 
 # Install the project itself in editable mode so `inderes_agent` is importable.
 -e .
