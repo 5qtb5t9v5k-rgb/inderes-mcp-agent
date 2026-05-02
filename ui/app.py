@@ -290,6 +290,11 @@ with st.sidebar:
         st.rerun()
 
     st.subheader("Recent runs")
+    st.caption(
+        "Each query saves a forensic record (query, routing, per-subagent "
+        "outputs, synthesis, full timeline) to disk. The 8 most recent are "
+        "listed below."
+    )
     if RUNS_ROOT.exists():
         recent = sorted(RUNS_ROOT.iterdir(), reverse=True)[:8]
         for d in recent:
@@ -308,10 +313,18 @@ with st.sidebar:
 
     st.subheader("About")
     st.caption(
-        "5 agents (lead + quant/research/sentiment/portfolio) "
-        "running on Microsoft Agent Framework + Gemini Flash. "
-        "Per-run logs at `~/.inderes_agent/runs/`."
+        "5 agents — a lead orchestrator plus four specialized subagents "
+        "(quant, research, sentiment, portfolio). Built on Microsoft Agent "
+        "Framework + Google Gemini Flash, querying Inderes MCP."
     )
+    runs_dir_display = str(RUNS_ROOT)
+    storage_note = (
+        "Per-run logs saved to ephemeral container storage — they reset on "
+        "every container restart."
+        if runs_dir_display.startswith("/tmp")
+        else "Per-run logs saved persistently."
+    )
+    st.caption(f"Logs at `{runs_dir_display}`. {storage_note}")
 
 
 # ---------------------------------------------------------------------------
