@@ -118,6 +118,12 @@ def inject_theme() -> None:
     font_import = (
         "@import url('https://fonts.googleapis.com/css2?"
         "family=JetBrains+Mono:wght@400;500;600;700&display=swap');\n"
+        # Streamlit uses Material Symbols Rounded for chevrons + sidebar
+        # collapse arrow. We load it explicitly so it's available even if
+        # Streamlit's CDN load races with our font-family overrides.
+        "@import url('https://fonts.googleapis.com/css2?"
+        "family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@"
+        "20..48,100..700,0..1,-50..200');\n"
     )
     st.markdown(
         f"<style>{font_import}{css}</style>",
@@ -183,16 +189,12 @@ def render_disclaimer(lang: str = "fi") -> None:
             "neljä erikoistunutta. Kysy Pohjoismaisista osakkeista; saat signaaleja, "
             "et osta- tai myy-suosituksia."
         )
-        cta = "LISÄTIEDOT GITHUBISSA →"
-        fine = "Henkilökohtainen tutkimusprojekti, ei Inderes Oyj:n tuottama."
     else:
         tag = "MULTI-AGENT RESEARCH"
         text = (
             "Five agents work each query together — one router and four "
             "specialists. Ask about Nordic equities; get signals, never buy/sell calls."
         )
-        cta = "MORE INFO ON GITHUB →"
-        fine = "Personal research project, not affiliated with Inderes Oyj."
 
     agents_html = ""
     for code, p in PERSONAS.items():
@@ -206,11 +208,44 @@ def render_disclaimer(lang: str = "fi") -> None:
         f'<div class="ia-hero-tag">{tag}</div>'
         f'<div class="ia-hero-text">{text}</div>'
         f'<div class="ia-hero-agents">{agents_html}</div>'
-        '<div class="ia-hero-cta">'
-        f'<span class="ia-hero-fine">{fine}</span>'
-        f'<a href="{GITHUB_URL}" target="_blank" rel="noopener">{cta}</a>'
         '</div>'
+    )
+    st.html(html)
+
+
+def render_sidebar_disclaimer(lang: str = "fi") -> None:
+    """Red-bordered fine-print disclaimer at the very top of the sidebar."""
+    if lang == "fi":
+        head = "HUOM"
+        body = (
+            "Henkilökohtainen tutkimusprojekti, ei Inderes Oyj:n tuottama, "
+            "tukema tai hyväksymä. Pinnistää signaaleja Inderesin julkisesta "
+            "datasta — ei anna osta- tai myy-suosituksia. Käyttäjä vastaa "
+            "omista sijoituspäätöksistään."
+        )
+    else:
+        head = "DISCLAIMER"
+        body = (
+            "Personal research project, not produced, supported, or endorsed "
+            "by Inderes Oyj. Surfaces signals from public Inderes data — does "
+            "not issue buy/sell calls. The user is responsible for their own "
+            "investment decisions."
+        )
+    html = (
+        f'<div class="ia-side-disclaimer">'
+        f'<div class="ia-sd-h">{head}</div>'
+        f'<div class="ia-sd-b">{body}</div>'
         '</div>'
+    )
+    st.html(html)
+
+
+def render_github_link(lang: str = "fi") -> None:
+    """GitHub CTA button — slot anywhere in the sidebar."""
+    label = "LISÄTIEDOT GITHUBISSA →" if lang == "fi" else "MORE INFO ON GITHUB →"
+    html = (
+        f'<a class="ia-side-cta" href="{GITHUB_URL}" target="_blank" rel="noopener">'
+        f'{label}</a>'
     )
     st.html(html)
 

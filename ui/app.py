@@ -88,6 +88,8 @@ from components import (  # noqa: E402
     render_personas_panel,
     render_about_panel,
     render_full_narrative,
+    render_sidebar_disclaimer,
+    render_github_link,
 )
 
 
@@ -303,8 +305,14 @@ def render_trace_expander(run_dir: Path) -> None:
 with st.sidebar:
     _lang_side = st.session_state.get("ui_lang", "fi")
 
+    # Red disclaimer at the very top — sets expectations before anything else
+    render_sidebar_disclaimer(_lang_side)
+
     # Project description
     render_about_panel(_lang_side)
+
+    # GitHub CTA — link out for more info
+    render_github_link(_lang_side)
 
     # Agent roster
     render_personas_panel(_lang_side)
