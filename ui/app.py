@@ -73,7 +73,9 @@ from inderes_agent.orchestration.synthesis import synthesize  # noqa: E402
 from inderes_agent.orchestration.workflows import run_workflow  # noqa: E402
 
 # Trading Desk visual layer — pure cosmetics, no agent-pipeline impact.
-from ui.components import (  # noqa: E402
+# `streamlit run ui/app.py` puts `ui/` on sys.path (not the repo root), so we
+# import the sibling module by its bare name. Works the same in cloud + local.
+from components import (  # noqa: E402
     inject_theme,
     render_titlebar,
     render_ticker,
