@@ -39,6 +39,23 @@ def _today_header() -> str:
     )
 
 
+def today_prompt_prefix() -> str:
+    """Same date preamble, formatted as a user-message prefix.
+
+    System instructions sometimes get less attention than the user prompt
+    when the conversation is long. Prefix every per-query prompt with the
+    same date info so it's the very first token the model attends to.
+    """
+    today = date.today()
+    iso = today.isoformat()
+    weekday_fi = _FI_WEEKDAYS[today.weekday()]
+    return (
+        f"[CURRENT DATE: {iso} — {weekday_fi}. "
+        "Use this for any 'today' / 'tänään' references. "
+        "Never substitute a date from your training data.]\n\n"
+    )
+
+
 def load_prompt(filename: str) -> str:
     path = PROMPTS_DIR / filename
     if not path.exists():

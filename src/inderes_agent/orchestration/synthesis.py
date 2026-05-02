@@ -28,10 +28,12 @@ async def synthesize(query: str, workflow_result: WorkflowResult) -> tuple[str, 
 
     Returns (final_answer_text, lead_model_used).
     """
+    from ..agents._common import today_prompt_prefix
+
     subagents_block = _format_subagent_results(workflow_result)
     cls = workflow_result.classification
 
-    prompt = f"""\
+    prompt = today_prompt_prefix() + f"""\
 USER QUESTION:
 {query}
 

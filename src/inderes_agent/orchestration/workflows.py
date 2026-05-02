@@ -63,7 +63,9 @@ async def _run_one(
             async with builder() as agent:
                 # If a specific company was specified for this fan-out branch,
                 # rephrase the prompt for the subagent so it focuses there.
-                prompt = query if company is None else f"For {company}: {query}"
+                from ..agents._common import today_prompt_prefix
+                base = query if company is None else f"For {company}: {query}"
+                prompt = today_prompt_prefix() + base
                 result = await agent.run(prompt)
                 model_used = getattr(agent.client, "last_used_model", "unknown")
                 # Walk response parts so code blocks, code outputs and images
