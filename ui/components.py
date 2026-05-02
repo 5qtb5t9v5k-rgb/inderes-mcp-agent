@@ -35,11 +35,36 @@ import streamlit as st
 # ---------------------------------------------------------------------------
 
 PERSONAS: dict[str, dict[str, Any]] = {
-    "LEAD":      {"glyph": "◆", "color": "#FFD24A", "role_fi": "Päätoimittaja", "role_en": "Editor-in-chief"},
-    "QUANT":     {"glyph": "▲", "color": "#4ADE80", "role_fi": "Numerot",        "role_en": "Numbers"},
-    "RESEARCH":  {"glyph": "■", "color": "#60A5FA", "role_fi": "Analyytikko",    "role_en": "Analyst"},
-    "SENTIMENT": {"glyph": "●", "color": "#F472B6", "role_fi": "Tunnelmat",      "role_en": "Vibes"},
-    "PORTFOLIO": {"glyph": "✦", "color": "#A78BFA", "role_fi": "Mallisalkku",    "role_en": "Model book"},
+    "LEAD": {
+        "glyph": "◆", "color": "#FFD24A",
+        "role_fi": "Päätoimittaja", "role_en": "Editor-in-chief",
+        "desc_fi": "Reitittää kysymyksen, jakaa työn subagenteille ja kirjoittaa lopullisen vastauksen.",
+        "desc_en": "Routes the query, dispatches subagents and writes the final synthesis.",
+    },
+    "QUANT": {
+        "glyph": "▲", "color": "#4ADE80",
+        "role_fi": "Numerot", "role_en": "Numbers",
+        "desc_fi": "Hakee fundamentaalit ja Inderesin estimaatit, ajaa Python-laskut (CAGR, suhdeluvut) sandboxissa.",
+        "desc_en": "Pulls fundamentals + Inderes estimates, runs Python math (CAGR, ratios) in a sandbox.",
+    },
+    "RESEARCH": {
+        "glyph": "■", "color": "#60A5FA",
+        "role_fi": "Analyytikko", "role_en": "Analyst",
+        "desc_fi": "Lukee Inderesin raportit ja transkriptit, etsii laadulliset ajurit ja näkemykset.",
+        "desc_en": "Reads Inderes reports + transcripts, surfaces qualitative drivers and theses.",
+    },
+    "SENTIMENT": {
+        "glyph": "●", "color": "#F472B6",
+        "role_fi": "Tunnelmat", "role_en": "Vibes",
+        "desc_fi": "Kahlaa keskustelupalstan ja sisäpiirikaupat, raportoi yksityissijoittajien tunnelman.",
+        "desc_en": "Trawls forum threads + insider trades, reports retail sentiment and signals.",
+    },
+    "PORTFOLIO": {
+        "glyph": "✦", "color": "#A78BFA",
+        "role_fi": "Mallisalkku", "role_en": "Model book",
+        "desc_fi": "Tarkastaa onko yhtiö Inderesin mallisalkussa ja millä painoilla.",
+        "desc_en": "Checks whether the company is in Inderes' model portfolio and at what weight.",
+    },
 }
 
 # Mock ticker — replace with a real feed if/when available.
@@ -331,6 +356,72 @@ def render_statusbar(meta: dict | None = None, lang: str = "fi") -> None:
         '<span class="ia-spacer"></span>'
         f'<span>{not_advice}</span>'
         "</div>"
+    )
+    st.html(html)
+
+
+# ---------------------------------------------------------------------------
+# Sidebar panels — agent personas + project description
+# ---------------------------------------------------------------------------
+
+def render_personas_panel(lang: str = "fi") -> None:
+    """Render the 5-agent roster in the sidebar with glyphs, colors, descriptions."""
+    title = "AGENTIT" if lang == "fi" else "AGENTS"
+    rows = []
+    for code, p in PERSONAS.items():
+        role = p["role_en"] if lang == "en" else p["role_fi"]
+        desc = p["desc_en"] if lang == "en" else p["desc_fi"]
+        rows.append(
+            f'<div class="ia-persona">'
+            f'<div class="ia-pg" style="color:{p["color"]}">{p["glyph"]}</div>'
+            f'<div>'
+            f'<div class="ia-pn" style="color:{p["color"]}">{code}</div>'
+            f'<div class="ia-pr">{_esc(role)}</div>'
+            f'<div class="ia-pd">{_esc(desc)}</div>'
+            f'</div></div>'
+        )
+    html = f'<div class="ia-side-h">{title}</div>' + "".join(rows)
+    st.html(html)
+
+
+def render_about_panel(lang: str = "fi") -> None:
+    """Render a project description block in the sidebar."""
+    title = "PROJEKTI" if lang == "fi" else "PROJECT"
+    if lang == "fi":
+        intro = (
+            "Henkilökohtainen tutkimusprojekti. Päätoimittaja-agentti reitittää "
+            "Pohjoismaisia osakkeita koskevan kysymyksen 1–4 erikoistuneelle "
+            "subagentille, joista jokainen ottaa yhteyttä Inderes MCP -palveluun "
+            "omilla työkaluillaan. Synteesi kootaan aina lopuksi yhdeksi vastaukseksi — "
+            "ei koskaan osta- tai myy-suosituksia."
+        )
+        kv = [
+            ("STACK", "MAF + Gemini Flash"),
+            ("DATA", "Inderes MCP", "amber"),
+            ("OUTPUT", "Signaalit, ei suosituksia"),
+            ("STATUS", "● Live", "green"),
+        ]
+    else:
+        intro = (
+            "Personal research project. A lead orchestrator routes a Nordic-equity "
+            "question to 1–4 specialized subagents, each calling the Inderes MCP "
+            "with their own toolset. Outputs are always synthesized into a single "
+            "answer — never buy/sell calls."
+        )
+        kv = [
+            ("STACK", "MAF + Gemini Flash"),
+            ("DATA", "Inderes MCP", "amber"),
+            ("OUTPUT", "Signals, not advice"),
+            ("STATUS", "● Live", "green"),
+        ]
+    rows = ""
+    for item in kv:
+        k, v = item[0], item[1]
+        cls = item[2] if len(item) > 2 else ""
+        rows += f'<div class="ia-kv"><span class="k">{k}</span><span class="v {cls}">{_esc(v)}</span></div>'
+    html = (
+        f'<div class="ia-side-h">{title}</div>'
+        f'<div class="ia-about"><p>{intro}</p>{rows}</div>'
     )
     st.html(html)
 

@@ -83,6 +83,8 @@ from ui.components import (  # noqa: E402
     render_agent_row,
     render_agent_output,
     render_statusbar,
+    render_personas_panel,
+    render_about_panel,
 )
 
 
@@ -291,13 +293,23 @@ def render_trace_expander(run_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 with st.sidebar:
-    st.subheader("Conversation")
+    _lang_side = st.session_state.get("ui_lang", "fi")
+
+    # Project description
+    render_about_panel(_lang_side)
+
+    # Agent roster
+    render_personas_panel(_lang_side)
+
+    # Conversation controls
+    st.markdown('<div class="ia-side-h">CONVERSATION</div>', unsafe_allow_html=True)
     if st.button("🗑️ Clear chat", use_container_width=True):
         st.session_state.state = ConversationState()
         st.session_state.history = []
         st.rerun()
 
-    st.subheader("Recent runs")
+    # Recent runs
+    st.markdown('<div class="ia-side-h">RECENT RUNS</div>', unsafe_allow_html=True)
     st.caption(
         "Each query saves a forensic record (query, routing, per-subagent "
         "outputs, synthesis, full timeline) to disk. The 8 most recent are "
@@ -316,15 +328,10 @@ with st.sidebar:
     cap = _daily_cap()
     if cap > 0:
         used = _query_count_today()
-        st.subheader("Daily quota")
+        st.markdown('<div class="ia-side-h">DAILY QUOTA</div>', unsafe_allow_html=True)
         st.progress(min(used / cap, 1.0), text=f"{used} / {cap} queries today")
 
-    st.subheader("About")
-    st.caption(
-        "5 agents — a lead orchestrator plus four specialized subagents "
-        "(quant, research, sentiment, portfolio). Built on Microsoft Agent "
-        "Framework + Google Gemini Flash, querying Inderes MCP."
-    )
+    # Logs path note
     runs_dir_display = str(RUNS_ROOT)
     storage_note = (
         "Per-run logs saved to ephemeral container storage — they reset on "
