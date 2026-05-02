@@ -1,9 +1,13 @@
 """Trading Desk visual components for the Streamlit app.
 
-Each helper returns a small HTML string and is rendered via
-``st.markdown(html, unsafe_allow_html=True)``. Keeping the components in
-one module means ``ui/app.py`` stays mostly the same — we just swap
-in a few calls.
+Each helper renders a small HTML string via ``st.html()``. We use
+``st.html`` (not ``st.markdown(unsafe_allow_html=True)``) because
+recent Streamlit releases strip ``<style>`` and ``<link>`` tags from
+markdown even with the unsafe flag. ``st.html`` is purpose-built for
+raw HTML/CSS injection and bypasses the sanitizer.
+
+Keeping the components in one module means ``ui/app.py`` stays mostly
+the same — we just swap in a few calls.
 
 Drop-in usage:
 
@@ -58,17 +62,25 @@ TAPE_ITEMS = [
 # ---------------------------------------------------------------------------
 
 def inject_theme() -> None:
-    """Inject the Trading Desk CSS once per Streamlit session."""
+    """Inject the Trading Desk CSS once per Streamlit session.
+
+    Streamlit's `st.markdown(..., unsafe_allow_html=True)` strips `<style>`
+    and `<link>` tags as a security measure even with the unsafe flag. The
+    fix is to use `st.html()`, which is purpose-built for raw HTML/CSS
+    injection and does not sanitize style/link tags.
+
+    We also embed the font as a CSS `@import` rather than a separate `<link>`
+    tag — `@import` lives inside the `<style>` block and travels with it.
+    """
     css_path = Path(__file__).parent / "theme.css"
     if not css_path.exists():
         return
     css = css_path.read_text(encoding="utf-8")
-    # also pull JetBrains Mono once
-    fonts = (
-        '<link href="https://fonts.googleapis.com/css2?'
-        'family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">'
+    font_import = (
+        "@import url('https://fonts.googleapis.com/css2?"
+        "family=JetBrains+Mono:wght@400;500;600;700&display=swap');\n"
     )
-    st.markdown(fonts + f"<style>{css}</style>", unsafe_allow_html=True)
+    st.html(f"<style>{font_import}{css}</style>")
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +97,7 @@ def render_titlebar(lang: str = "fi") -> None:
         f'<span class="ia-online">{online}</span>'
         "</div>"
     )
-    st.markdown(html, unsafe_allow_html=True)
+    st.html(html)
 
 
 def render_ticker() -> None:
@@ -105,7 +117,7 @@ def render_ticker() -> None:
         + "".join(items)
         + "</div></div>"
     )
-    st.markdown(html, unsafe_allow_html=True)
+    st.html(html)
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +140,7 @@ def render_disclaimer(lang: str = "fi") -> None:
             "The user decides."
         )
     html = f'<div class="ia-disclaimer"><div class="ia-dh">{head}</div>{body}</div>'
-    st.markdown(html, unsafe_allow_html=True)
+    st.html(html)
 
 
 def render_idle_hero(lang: str = "fi") -> None:
@@ -141,7 +153,7 @@ def render_idle_hero(lang: str = "fi") -> None:
         f'<div class="ia-sub">{sub}</div>'
         "</div>"
     )
-    st.markdown(html, unsafe_allow_html=True)
+    st.html(html)
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +195,7 @@ def render_routing_card(routing: dict, lang: str = "fi") -> None:
         f'<div class="ia-rv" style="font-size:11px;color:var(--ia-dim)">{_esc(reason)}</div></div>'
         "</div>"
     )
-    st.markdown(html, unsafe_allow_html=True)
+    st.html(html)
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +249,7 @@ def render_metrics_row(run_dir: Path, lang: str = "fi") -> None:
         f'<div class="ia-ms">2026e</div></div>'
         "</div>"
     )
-    st.markdown(html, unsafe_allow_html=True)
+    st.html(html)
 
 
 # ---------------------------------------------------------------------------
@@ -267,18 +279,31 @@ def render_agent_row(sa: dict, lang: str = "fi") -> None:
         f'<div></div>'
         "</div>"
     )
-    st.markdown(html, unsafe_allow_html=True)
+    st.html(html)
 
 
 def render_agent_output(text: str | None) -> None:
-    """Render the subagent's text in a styled box. Falls back to italic
-    placeholder if empty."""
+    """Render the subagent's text in a styled box.
+
+    Each `st.html()` call is its own DOM block, so we can't open a div in
+    one call and close it in another. Instead we convert the markdown text
+    to HTML via `markdown-it-py` (already an indirect dependency through
+    Streamlit's own rich-rendering stack) and wrap the result in our
+    `ia-agent-output` div in a single st.html call.
+    """
     if not text:
         text = "_(empty response)_"
-    # Use Streamlit's own markdown so bold/lists work, but wrap in our box.
-    st.markdown('<div class="ia-agent-output">', unsafe_allow_html=True)
-    st.markdown(text)
-    st.markdown("</div>", unsafe_allow_html=True)
+    try:
+        from markdown_it import MarkdownIt
+
+        html_content = MarkdownIt().render(text)
+    except Exception:
+        # If markdown_it isn't available for some reason, fall back to a
+        # `<pre>` block — formatting is lost but content still readable.
+        from html import escape as _html_escape
+
+        html_content = f"<pre>{_html_escape(text)}</pre>"
+    st.html(f'<div class="ia-agent-output">{html_content}</div>')
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +332,7 @@ def render_statusbar(meta: dict | None = None, lang: str = "fi") -> None:
         f'<span>{not_advice}</span>'
         "</div>"
     )
-    st.markdown(html, unsafe_allow_html=True)
+    st.html(html)
 
 
 def _esc(s: Any) -> str:
