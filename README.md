@@ -164,8 +164,9 @@ streamlit run ui/app.py
 
 Opens `http://localhost:8501` with a chat interface, live phase indicators
 (routing → subagents → synthesis), and an expandable per-query subagent trace.
-Same agent code as the CLI underneath. Local-only — OAuth callback uses
-localhost. See [`ui/README.md`](ui/README.md) for hosting notes.
+Same agent code as the CLI underneath. See [`ui/README.md`](ui/README.md)
+and [`ui/DEPLOY.md`](ui/DEPLOY.md) for Streamlit Cloud deployment notes
+(public app + password gate + daily query cap).
 
 ### REPL slash commands
 

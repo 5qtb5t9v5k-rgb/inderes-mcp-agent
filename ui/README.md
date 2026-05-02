@@ -34,21 +34,19 @@ Inderes login window pops up.
 - Model picker (uses the same `PRIMARY_MODEL` / `FALLBACK_MODEL` from `.env`)
 - Concurrency tuning UI (use `MAX_CONCURRENT_AGENTS` env var)
 
-## Hosting (advanced)
+## Hosting (Streamlit Cloud)
 
-Streamlit Community Cloud or similar hosting requires solving the Inderes OAuth
-flow differently — the localhost callback doesn't work behind an HTTPS host.
-Two paths:
+Single-user, public, password-gated deployment is supported. See
+[`DEPLOY.md`](DEPLOY.md) for step-by-step instructions covering:
 
-1. **Single-user** — pre-bake your `~/.inderes_agent/tokens.json` as a Streamlit
-   secret and have `prefetch_token()` read from it. Only you can use the
-   deployed app.
-2. **Multi-user** — register the deployed URL with Inderes Keycloak as an
-   approved redirect URI, then implement a proper per-user OAuth flow. Requires
-   coordination with Inderes.
+- Capturing your OAuth tokens locally and pasting them as a Streamlit secret
+- Setting an app password and a daily query cap
+- Configuring a Gemini budget cap so a leaked password can't run away with cost
+- Day-to-day operational tasks (token rotation, password rotation)
 
-This is documented in `ARCHITECTURE.md` under the OAuth section. Neither is
-implemented in this MVP.
+Multi-user OAuth (each user logs in with their own Inderes credentials) would
+require coordination with Inderes to register the deployed URL as a Keycloak
+redirect URI — out of scope for this project.
 
 ## Stopping the server
 

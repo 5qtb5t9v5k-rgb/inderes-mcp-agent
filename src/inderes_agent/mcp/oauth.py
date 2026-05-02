@@ -43,8 +43,31 @@ log = logging.getLogger(__name__)
 
 DEFAULT_RESOURCE_URL = "https://mcp.inderes.com"
 DEFAULT_CLIENT_ID = "inderes-mcp"
-TOKEN_CACHE = Path.home() / ".inderes_agent" / "tokens.json"
 TOKEN_REFRESH_BUFFER_S = 60  # refresh if expiring within 60 seconds
+
+# Override the cache directory via env var. Useful in cloud environments where
+# `~` doesn't exist or isn't writable (e.g. Streamlit Cloud → /tmp/inderes_agent).
+CACHE_DIR_ENV = "INDERES_AGENT_CACHE"
+
+# Bootstrap the token cache from this env var on first use, if no cache file
+# exists yet. Used in cloud deployments where the operator pastes a JSON blob
+# of an already-completed OAuth handshake into the deployment's secrets.
+CLOUD_TOKEN_ENV = "INDERES_OAUTH_TOKENS_JSON"
+
+
+def _cache_dir() -> Path:
+    override = os.environ.get(CACHE_DIR_ENV)
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".inderes_agent"
+
+
+def _token_cache_path() -> Path:
+    return _cache_dir() / "tokens.json"
+
+
+# Backwards-compat alias used by tests and the `/runs` UI helper.
+TOKEN_CACHE = _token_cache_path()
 
 
 @dataclass
@@ -74,18 +97,53 @@ class TokenSet:
 
 
 def _save_tokens(tokens: TokenSet) -> None:
-    TOKEN_CACHE.parent.mkdir(parents=True, exist_ok=True)
-    TOKEN_CACHE.write_text(json.dumps(tokens.to_dict(), indent=2))
-    os.chmod(TOKEN_CACHE, 0o600)
+    cache = _token_cache_path()
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps(tokens.to_dict(), indent=2))
+    os.chmod(cache, 0o600)
 
 
 def _load_tokens() -> TokenSet | None:
-    if not TOKEN_CACHE.exists():
-        return None
+    cache = _token_cache_path()
+    if not cache.exists():
+        _bootstrap_from_env()
+        if not cache.exists():
+            return None
     try:
-        return TokenSet.from_dict(json.loads(TOKEN_CACHE.read_text()))
+        return TokenSet.from_dict(json.loads(cache.read_text()))
     except Exception:
         return None
+
+
+def _bootstrap_from_env() -> bool:
+    """If `INDERES_OAUTH_TOKENS_JSON` is set, write its contents to the token cache.
+
+    Used in cloud deployments (Streamlit Cloud etc.) where the operator pastes
+    an already-completed OAuth token JSON into deployment secrets. Without this,
+    the agent would try to open a browser at startup and fail in a headless
+    environment.
+
+    Returns True if a fresh cache file was written, False otherwise (env var
+    missing, cache already exists, or parse error).
+    """
+    raw = os.environ.get(CLOUD_TOKEN_ENV)
+    if not raw:
+        return False
+    cache = _token_cache_path()
+    if cache.exists():
+        # Don't overwrite an existing cache — it may be more recent than the env
+        # var (refresh has happened during this container's lifetime).
+        return False
+    try:
+        data = json.loads(raw)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(data, indent=2))
+        os.chmod(cache, 0o600)
+        log.info("oauth_token_bootstrapped_from_env path=%s", cache)
+        return True
+    except Exception as exc:
+        log.warning("oauth_env_bootstrap_failed err=%s", exc)
+        return False
 
 
 def _pkce_pair() -> tuple[str, str]:
@@ -268,6 +326,40 @@ def _refresh_tokens(tokens: TokenSet) -> TokenSet | None:
         return None
 
 
+class HeadlessAuthError(RuntimeError):
+    """Raised when an interactive OAuth flow is needed but the environment can't open a browser.
+
+    Shipped with a clear remediation message — typically the operator needs to
+    run `python -m inderes_agent ...` once locally to populate
+    `~/.inderes_agent/tokens.json`, then paste that file's contents into the
+    deployment's `INDERES_OAUTH_TOKENS_JSON` secret.
+    """
+
+
+def _is_headless() -> bool:
+    """Best-effort detection of an environment that can't host an interactive browser.
+
+    Streamlit Cloud, Docker without DISPLAY, CI runners, etc. We use this to
+    fail fast with a clear message instead of hanging on a blocked browser
+    callback.
+    """
+    if os.environ.get("INDERES_AGENT_FORCE_INTERACTIVE"):
+        return False
+    # Standard headless markers
+    if os.environ.get("STREAMLIT_RUNTIME_ENV", "").lower() in {"cloud", "production"}:
+        return True
+    if os.environ.get("KUBERNETES_SERVICE_HOST"):
+        return True
+    if os.environ.get("CI"):
+        return True
+    # macOS / Linux desktop usually has DISPLAY (Linux) or just works (macOS).
+    # If DISPLAY is missing on Linux we treat as headless.
+    import sys
+    if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
+        return True
+    return False
+
+
 def get_inderes_access_token(
     *,
     resource_url: str = DEFAULT_RESOURCE_URL,
@@ -278,7 +370,15 @@ def get_inderes_access_token(
 
     First call (no cache) opens a browser. Subsequent calls reuse the cached token,
     refreshing transparently when it's near expiry.
+
+    In headless environments (Streamlit Cloud etc.), only refresh works — if a
+    fresh login would be needed, raises `HeadlessAuthError` with instructions
+    for the operator instead of hanging on a blocked browser callback.
     """
+    # Eagerly bootstrap from env var on every call so cloud deployments don't
+    # have to ensure prefetch_token() is invoked before any other code path.
+    _bootstrap_from_env()
+
     cached = None if force_login else _load_tokens()
     if cached and cached.is_fresh:
         return cached.access_token
@@ -288,6 +388,15 @@ def get_inderes_access_token(
         if refreshed:
             _save_tokens(refreshed)
             return refreshed.access_token
+
+    if _is_headless():
+        raise HeadlessAuthError(
+            "OAuth flow requires opening a browser, but this environment is "
+            "headless (Streamlit Cloud / CI / no display).\n\n"
+            "Remediation: run the agent once locally to complete OAuth, then "
+            "paste ~/.inderes_agent/tokens.json into the deployment's "
+            "INDERES_OAUTH_TOKENS_JSON secret. See ui/DEPLOY.md."
+        )
 
     discovery = _discover(resource_url)
     tokens = _do_authorization_code_flow(discovery, client_id)

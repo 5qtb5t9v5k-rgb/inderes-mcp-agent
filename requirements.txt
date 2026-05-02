@@ -1,0 +1,26 @@
+# Pinned for Streamlit Cloud.
+# Local development should use `uv pip install --pre -e '.[ui]'` instead;
+# this file exists because Streamlit Cloud auto-detects requirements.txt
+# and won't honor pyproject.toml's optional-dependencies.
+
+# Core agent stack
+agent-framework>=1.0
+# Pin the alpha explicitly — `pip install -r` in Streamlit Cloud doesn't pass --pre.
+# Bump this version manually when agent-framework-gemini cuts a new release.
+agent-framework-gemini==1.0.0a260429
+google-genai>=1.0
+pydantic>=2
+pydantic-settings>=2
+structlog>=24
+rich>=13
+prompt_toolkit>=3
+python-dotenv>=1
+httpx>=0.27
+opentelemetry-api>=1.25
+opentelemetry-sdk>=1.25
+
+# UI
+streamlit>=1.40
+
+# Install the project itself in editable mode so `inderes_agent` is importable.
+-e .

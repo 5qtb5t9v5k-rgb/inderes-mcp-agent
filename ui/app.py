@@ -3,42 +3,71 @@
 Run locally:
     streamlit run ui/app.py
 
-This is intentionally a thin wrapper over `inderes_agent`'s existing handle_query
-flow. The agent does its work the same way as in the CLI; this just renders it
-in a browser with chat history, live phase indicators, and an expandable trace.
+Cloud deployment (single-user, public app, password-gated):
+    See ui/DEPLOY.md.
 
-Hosting note: this MVP is local-only. The Inderes OAuth flow opens the browser
-on first run for a localhost callback. Hosting on Streamlit Cloud would require
-either pre-baking your token as a secret (single-user) or registering the
-deployed URL with Inderes Keycloak (multi-user). See ARCHITECTURE.md for the
-auth pipeline.
+The agent code is identical to the CLI — this module just adds:
+- a chat surface,
+- a password gate (Streamlit secrets) to limit drive-by access,
+- a daily query cap so a leaked password can't burn unlimited Gemini quota,
+- bridging from st.secrets to os.environ so oauth.py can pick up
+  INDERES_OAUTH_TOKENS_JSON in cloud deployments.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
+from datetime import date
 from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
 
-from inderes_agent.cli.repl import ConversationState
-from inderes_agent.llm.gemini_client import QuotaExhaustedError
-from inderes_agent.logging import configure_logging
-from inderes_agent.mcp.inderes_client import prefetch_token
-from inderes_agent.observability.narrate import write_narrative
-from inderes_agent.observability.run_log import (
+# IMPORTANT: bridge Streamlit secrets to os.environ BEFORE importing any
+# inderes_agent module — oauth.py reads INDERES_OAUTH_TOKENS_JSON at module
+# load time and again on every token request, but the env var has to be set
+# before the very first call.
+def _bridge_secrets_to_env() -> None:
+    """Copy each Streamlit secret into os.environ so non-Streamlit code can read it.
+
+    Streamlit secrets aren't auto-exposed as env vars. We do it here so
+    `inderes_agent.mcp.oauth` (which reads `os.environ["INDERES_OAUTH_TOKENS_JSON"]`)
+    works without depending on Streamlit.
+    """
+    try:
+        secrets_obj = st.secrets
+    except Exception:
+        return
+    for key, value in secrets_obj.items():
+        # Nested TOML tables (like [INDERES_OAUTH_TOKENS]) get serialised to JSON.
+        if isinstance(value, dict):
+            os.environ.setdefault(f"{key}_JSON", json.dumps(value))
+        else:
+            os.environ.setdefault(key, str(value))
+
+
+_bridge_secrets_to_env()
+
+from inderes_agent.cli.repl import ConversationState  # noqa: E402
+from inderes_agent.llm.gemini_client import QuotaExhaustedError  # noqa: E402
+from inderes_agent.logging import configure_logging  # noqa: E402
+from inderes_agent.mcp.inderes_client import prefetch_token  # noqa: E402
+from inderes_agent.mcp.oauth import HeadlessAuthError  # noqa: E402
+from inderes_agent.observability.narrate import write_narrative  # noqa: E402
+from inderes_agent.observability.run_log import (  # noqa: E402
     RUNS_ROOT,
     attach_console_log_handler,
     detach_console_log_handler,
     new_run_dir,
     write_run,
 )
-from inderes_agent.orchestration.router import classify_query
-from inderes_agent.orchestration.synthesis import synthesize
-from inderes_agent.orchestration.workflows import run_workflow
+from inderes_agent.orchestration.router import classify_query  # noqa: E402
+from inderes_agent.orchestration.synthesis import synthesize  # noqa: E402
+from inderes_agent.orchestration.workflows import run_workflow  # noqa: E402
+
 
 # ---------------------------------------------------------------------------
 # Page setup
@@ -49,6 +78,96 @@ st.set_page_config(
     page_icon="📊",
     layout="wide",
 )
+
+
+# ---------------------------------------------------------------------------
+# Password gate (Path C: public deployment, simple shared password)
+# ---------------------------------------------------------------------------
+
+def _check_password() -> bool:
+    """If APP_PASSWORD secret/env is set, require it before rendering the app.
+
+    Returns True iff the user is authenticated (or no password is configured).
+    Calls st.stop() in the unauthenticated path, so the rest of the page never
+    renders.
+    """
+    expected = os.environ.get("APP_PASSWORD")
+    if not expected:
+        return True  # no gate configured — open mode, useful in local dev
+
+    if st.session_state.get("authenticated"):
+        return True
+
+    st.title("🔒 inderes-mcp-agent-system")
+    st.caption("This deployment is password-protected.")
+    pw = st.text_input("Password", type="password", key="_pw_input")
+    if not pw:
+        st.stop()
+    if pw == expected:
+        st.session_state.authenticated = True
+        st.rerun()
+    else:
+        st.error("Incorrect password.")
+        st.stop()
+    return False
+
+
+_check_password()
+
+
+# ---------------------------------------------------------------------------
+# Daily query cap (limits damage if password leaks)
+# ---------------------------------------------------------------------------
+
+_QUERY_COUNTER_PATH = Path(os.environ.get("INDERES_AGENT_CACHE", "/tmp/inderes_agent")) / "query_count.json"
+
+
+def _query_count_today() -> int:
+    today = date.today().isoformat()
+    if _QUERY_COUNTER_PATH.exists():
+        try:
+            data = json.loads(_QUERY_COUNTER_PATH.read_text(encoding="utf-8"))
+            if data.get("date") == today:
+                return int(data.get("count", 0))
+        except Exception:
+            pass
+    return 0
+
+
+def _increment_query_count() -> int:
+    today = date.today().isoformat()
+    count = _query_count_today() + 1
+    _QUERY_COUNTER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _QUERY_COUNTER_PATH.write_text(
+        json.dumps({"date": today, "count": count}), encoding="utf-8"
+    )
+    return count
+
+
+def _daily_cap() -> int:
+    raw = os.environ.get("DAILY_QUERY_CAP", "")
+    try:
+        return int(raw) if raw else 0  # 0 = no cap
+    except ValueError:
+        return 0
+
+
+def _enforce_daily_cap_or_stop() -> None:
+    cap = _daily_cap()
+    if cap <= 0:
+        return
+    used = _query_count_today()
+    if used >= cap:
+        st.error(
+            f"Päivittäinen kyselyraja täynnä ({used}/{cap}). "
+            "Kokeile huomenna uudelleen."
+        )
+        st.stop()
+
+
+# ---------------------------------------------------------------------------
+# Title and header
+# ---------------------------------------------------------------------------
 
 st.title("📊 inderes-mcp-agent-system")
 st.caption(
@@ -64,10 +183,20 @@ st.caption(
 
 @st.cache_resource(show_spinner="Authenticating with Inderes…")
 def _bootstrap() -> None:
-    """Run-once-per-session: load env, configure logging, prefetch OAuth token."""
+    """Run-once-per-session: load env, configure logging, prefetch OAuth token.
+
+    On Streamlit Cloud `prefetch_token()` should succeed silently if
+    INDERES_OAUTH_TOKENS_JSON is in secrets — oauth.py bootstraps the cache
+    from the env var. If a fresh login is needed, raises HeadlessAuthError
+    which we surface as a clear ops message.
+    """
     load_dotenv()
     configure_logging()
-    prefetch_token()
+    try:
+        prefetch_token()
+    except HeadlessAuthError as exc:
+        st.error(str(exc))
+        st.stop()
 
 
 _bootstrap()
@@ -167,6 +296,12 @@ with st.sidebar:
     else:
         st.caption("No runs yet.")
 
+    cap = _daily_cap()
+    if cap > 0:
+        used = _query_count_today()
+        st.subheader("Daily quota")
+        st.progress(min(used / cap, 1.0), text=f"{used} / {cap} queries today")
+
     st.subheader("About")
     st.caption(
         "5 agents (lead + quant/research/sentiment/portfolio) "
@@ -248,6 +383,10 @@ async def run_pipeline(query: str, state: ConversationState, status) -> tuple[st
 prompt = st.chat_input("Kysy jotain Pohjoismaisista osakkeista…")
 
 if prompt:
+    # Enforce the daily cap BEFORE we charge a query against the cap. The
+    # increment happens after a successful run.
+    _enforce_daily_cap_or_stop()
+
     st.session_state.history.append({"role": "user", "content": prompt, "run_dir": None})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -258,6 +397,7 @@ if prompt:
             answer, run_dir = asyncio.run(
                 run_pipeline(prompt, st.session_state.state, status)
             )
+            _increment_query_count()
             status.update(label="Valmis", state="complete", expanded=False)
             st.markdown(answer)
             render_trace_expander(run_dir)
