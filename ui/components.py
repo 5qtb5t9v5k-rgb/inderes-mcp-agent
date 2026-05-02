@@ -1,10 +1,19 @@
 """Trading Desk visual components for the Streamlit app.
 
-Each helper renders a small HTML string via ``st.html()``. We use
-``st.html`` (not ``st.markdown(unsafe_allow_html=True)``) because
-recent Streamlit releases strip ``<style>`` and ``<link>`` tags from
-markdown even with the unsafe flag. ``st.html`` is purpose-built for
-raw HTML/CSS injection and bypasses the sanitizer.
+Two injection methods are used here, each for a different reason:
+
+* ``inject_theme()`` uses ``st.markdown(..., unsafe_allow_html=True)``
+  with a ``<style>`` block. This is the documented Streamlit way to
+  inject page-level CSS — the style rules apply to the whole app.
+* All other ``render_*`` helpers use ``st.html()``, which renders a
+  raw HTML chunk into the page DOM (no markdown processing, no
+  escape). They rely on the page-level CSS that ``inject_theme``
+  loaded — they don't carry their own ``<style>`` tags.
+
+We don't render the stylesheet via ``st.html`` because that wraps the
+payload in a scoped container; ``<style>`` tags inside that wrapper
+apply only to siblings within it, not to the surrounding Streamlit
+chrome.
 
 Keeping the components in one module means ``ui/app.py`` stays mostly
 the same — we just swap in a few calls.
@@ -89,12 +98,17 @@ TAPE_ITEMS = [
 def inject_theme() -> None:
     """Inject the Trading Desk CSS once per Streamlit session.
 
-    Streamlit's `st.markdown(..., unsafe_allow_html=True)` strips `<style>`
-    and `<link>` tags as a security measure even with the unsafe flag. The
-    fix is to use `st.html()`, which is purpose-built for raw HTML/CSS
-    injection and does not sanitize style/link tags.
+    `st.html()` wraps its payload in a scoped container (`<div data-testid=
+    "stHtml">…</div>`) — `<style>` tags inside that wrapper apply only to
+    siblings within the wrapper, NOT to the rest of the Streamlit page. So
+    rendering a stylesheet via `st.html` produces zero styling on the
+    surrounding chrome.
 
-    We also embed the font as a CSS `@import` rather than a separate `<link>`
+    The documented way to inject page-level CSS in Streamlit is
+    `st.markdown(..., unsafe_allow_html=True)` with a `<style>` block —
+    those tags ARE preserved and applied to the entire page.
+
+    The font is embedded as a CSS `@import` rather than a separate `<link>`
     tag — `@import` lives inside the `<style>` block and travels with it.
     """
     css_path = Path(__file__).parent / "theme.css"
@@ -105,7 +119,10 @@ def inject_theme() -> None:
         "@import url('https://fonts.googleapis.com/css2?"
         "family=JetBrains+Mono:wght@400;500;600;700&display=swap');\n"
     )
-    st.html(f"<style>{font_import}{css}</style>")
+    st.markdown(
+        f"<style>{font_import}{css}</style>",
+        unsafe_allow_html=True,
+    )
 
 
 # ---------------------------------------------------------------------------
