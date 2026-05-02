@@ -154,6 +154,22 @@ input:focus, textarea:focus { border-color: var(--ia-amber) !important; }
   border: 1px solid var(--ia-border) !important;
   border-left: 2px solid var(--ia-amber) !important;
   border-radius: 0 !important;
+  /* Clip the transitioning label text. Streamlit animates the label
+     between states ("Käsittelen kysymystäsi…" → "Valmis"); without
+     clipping the previous label bleeds through underneath the new one
+     when the box is collapsed. */
+  overflow: hidden !important;
+}
+/* The summary row hosts label + icon — force a solid background and a
+   higher z-index so any in-flight transition layer beneath it gets
+   covered instead of painting through. */
+[data-testid="stStatusWidget"] details > summary,
+[data-testid="stStatus"] details > summary,
+[data-testid="stStatusWidget"] summary,
+[data-testid="stStatus"] summary {
+  background: var(--ia-panel) !important;
+  position: relative !important;
+  z-index: 2 !important;
 }
 /* Belt-and-suspenders: also pin the icon font for icons inside status. */
 [data-testid="stStatusWidget"] [data-testid="stIconMaterial"],
