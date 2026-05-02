@@ -324,6 +324,31 @@ def render_agent_row(sa: dict, lang: str = "fi") -> None:
     st.html(html)
 
 
+def _wrap_python_output(text: str) -> str:
+    """Wrap Python sandbox stdout (the line right after a ```python block) as a
+    fenced ``output`` block so it renders distinctly from both code and prose.
+
+    Detection: a closing ``⁠```⁠`` followed by one or more blank lines and
+    a paragraph whose first line starts with a Python repr marker (``{``, ``[``,
+    ``(``, a digit, or a quote). The paragraph runs until the next blank line.
+    """
+    import re
+
+    pat = re.compile(
+        r"(^```\s*$\n)"          # 1: closing fence on its own line
+        r"\n+"                   #    one or more blank lines
+        r"([\{\[\(\d\'\"][^\n]*" # 2: first repr-like line
+        r"(?:\n[^\n]+)*?)"       #    optional further lines (no blanks)
+        r"(?=\n\s*\n|\Z)",       #    stop at blank line or end-of-string
+        re.MULTILINE,
+    )
+
+    def _replace(m: "re.Match[str]") -> str:
+        return f"{m.group(1)}\n```output\n{m.group(2)}\n```"
+
+    return pat.sub(_replace, text)
+
+
 def render_agent_output(text: str | None) -> None:
     """Render the subagent's text in a styled box.
 
@@ -332,9 +357,15 @@ def render_agent_output(text: str | None) -> None:
     to HTML via `markdown-it-py` (already an indirect dependency through
     Streamlit's own rich-rendering stack) and wrap the result in our
     `ia-agent-output` div in a single st.html call.
+
+    Before rendering we pre-process the text so a stdout-looking paragraph
+    that immediately follows a ```python``` block gets wrapped in its own
+    ```output``` fenced block — the CSS then gives it a green left border so
+    it's visually distinct from the (blue-bordered) source-code block above.
     """
     if not text:
         text = "_(empty response)_"
+    text = _wrap_python_output(text)
     try:
         from markdown_it import MarkdownIt
 
@@ -351,6 +382,44 @@ def render_agent_output(text: str | None) -> None:
 
         html_content = f"<pre>{_html_escape(text)}</pre>"
     st.html(f'<div class="ia-agent-output">{html_content}</div>')
+
+
+def render_full_narrative(run_dir: Path, lang: str = "fi") -> None:
+    """Render the full narrative.md (routing + tool-call timeline + subagent
+    answers) in a scrollable container at the bottom of the trace.
+
+    Same data as the per-section breakdown above, but in one easy-to-scan
+    document — useful for getting a feel for how the agent progressed (which
+    tools it called, in what order, how long each took).
+    """
+    narrative_path = run_dir / "narrative.md"
+    if not narrative_path.exists():
+        return
+    text = narrative_path.read_text(encoding="utf-8")
+    title = "TÄYDELLINEN AJOLOKI" if lang == "fi" else "FULL RUN LOG"
+    sub = (
+        "Reititys, työkalukutsujen aikajana ja subagenttien raakat vastaukset."
+        if lang == "fi"
+        else "Routing, tool-call timeline, and raw subagent answers."
+    )
+    try:
+        from markdown_it import MarkdownIt
+
+        text = _wrap_python_output(text)
+        md = MarkdownIt("commonmark").enable(["table", "strikethrough"])
+        html_content = md.render(text)
+    except Exception:
+        from html import escape as _html_escape
+
+        html_content = f"<pre>{_html_escape(text)}</pre>"
+    st.html(
+        f'<div class="ia-narrative-h">{title}</div>'
+        f'<div class="ia-narrative-sub">{sub}</div>'
+        f'<div class="ia-narrative">{html_content}</div>'
+    )
+
+
+
 
 
 # ---------------------------------------------------------------------------

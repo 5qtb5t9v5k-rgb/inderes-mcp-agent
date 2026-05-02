@@ -87,6 +87,7 @@ from components import (  # noqa: E402
     render_statusbar,
     render_personas_panel,
     render_about_panel,
+    render_full_narrative,
 )
 
 
@@ -285,9 +286,14 @@ def render_trace_expander(run_dir: Path) -> None:
             else:
                 render_agent_output(sa.get("text"))
 
+        # Full narrative — same data the CLI writes to narrative.md, rendered
+        # inline in a scrollable container so the user can review the routing
+        # decisions, tool-call timeline, and raw subagent answers without
+        # leaving the app.
+        render_full_narrative(run_dir, st.session_state.get("ui_lang", "fi"))
         narrative_path = run_dir / "narrative.md"
         if narrative_path.exists():
-            st.caption(f"Full narrative: `{narrative_path}`")
+            st.caption(f"On-disk: `{narrative_path}`")
 
 
 # ---------------------------------------------------------------------------
