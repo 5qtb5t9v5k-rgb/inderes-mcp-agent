@@ -36,12 +36,16 @@ def _bridge_secrets_to_env() -> None:
     Streamlit secrets aren't auto-exposed as env vars. We do it here so
     `inderes_agent.mcp.oauth` (which reads `os.environ["INDERES_OAUTH_TOKENS_JSON"]`)
     works without depending on Streamlit.
+
+    Locally there's typically no secrets.toml — accessing `st.secrets.items()`
+    raises `StreamlitSecretNotFoundError` in that case. We treat that as "no
+    secrets to bridge" and continue silently.
     """
     try:
-        secrets_obj = st.secrets
+        items = list(st.secrets.items())
     except Exception:
-        return
-    for key, value in secrets_obj.items():
+        return  # no secrets.toml configured — fine in local dev
+    for key, value in items:
         # Nested TOML tables (like [INDERES_OAUTH_TOKENS]) get serialised to JSON.
         if isinstance(value, dict):
             os.environ.setdefault(f"{key}_JSON", json.dumps(value))
