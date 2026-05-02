@@ -88,6 +88,30 @@ if "history" not in st.session_state:
 # Trace rendering helper
 # ---------------------------------------------------------------------------
 
+def _render_subagent_text(run_dir: Path, sa: dict) -> None:
+    """Render a subagent's text plus any extracted images.
+
+    The `text` field is markdown that may contain `![chart](images/foo.png)`
+    references — Streamlit's `st.markdown` won't resolve relative paths from
+    the run dir, so we render the markdown without images and then explicitly
+    `st.image()` each saved image.
+    """
+    import re
+
+    text = sa.get("text") or "_(empty response)_"
+    image_paths = sa.get("image_paths") or []
+
+    # Strip image markdown so it doesn't render as broken links.
+    cleaned = re.sub(r"!\[[^\]]*\]\([^)]+\)\s*", "", text).strip()
+    if cleaned:
+        st.markdown(cleaned)
+
+    for rel in image_paths:
+        img_path = run_dir / rel
+        if img_path.exists():
+            st.image(str(img_path), use_container_width=True)
+
+
 def render_trace_expander(run_dir: Path) -> None:
     """Show routing + per-subagent + tool-call trace inside an expander."""
     routing_path = run_dir / "routing.json"
@@ -127,7 +151,7 @@ def render_trace_expander(run_dir: Path) -> None:
                 st.error(err)
             else:
                 with st.container(border=True):
-                    st.markdown(sa.get("text") or "_(empty response)_")
+                    _render_subagent_text(run_dir, sa)
 
         narrative_path = run_dir / "narrative.md"
         if narrative_path.exists():
@@ -197,7 +221,7 @@ async def run_pipeline(query: str, state: ConversationState, status) -> tuple[st
         )
 
         status.write("⚙️  Subagentit ajetaan rinnakkain…")
-        workflow_result = await run_workflow(query, classification)
+        workflow_result = await run_workflow(query, classification, run_dir=run_dir)
         for sr in workflow_result.subagent_results:
             mark = "❌ ERROR" if sr.error else "✓"
             company = f" — {sr.company}" if sr.company else ""

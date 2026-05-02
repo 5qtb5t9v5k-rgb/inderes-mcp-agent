@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from ..agents import (
     build_portfolio_agent,
@@ -19,6 +20,7 @@ from ..agents import (
     build_research_agent,
     build_sentiment_agent,
 )
+from ..observability.output_parts import extract_parts
 from ..settings import get_settings
 from .router import Domain, QueryClassification
 
@@ -30,6 +32,7 @@ class SubagentResult:
     text: str
     model_used: str
     error: str | None = None
+    image_paths: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -52,6 +55,7 @@ async def _run_one(
     query: str,
     company: str | None,
     sem: asyncio.Semaphore,
+    run_dir: Path,
 ) -> SubagentResult:
     builder = _AGENT_BUILDERS[domain]
     async with sem:
@@ -61,13 +65,19 @@ async def _run_one(
                 # rephrase the prompt for the subagent so it focuses there.
                 prompt = query if company is None else f"For {company}: {query}"
                 result = await agent.run(prompt)
-                text = result.text if hasattr(result, "text") else str(result)
                 model_used = getattr(agent.client, "last_used_model", "unknown")
+                # Walk response parts so code blocks, code outputs and images
+                # land structured rather than flattened into one text blob.
+                label = f"{domain.value}-{company}" if company else domain.value
+                text, image_paths = extract_parts(
+                    result, run_dir=run_dir, agent_label=label
+                )
                 return SubagentResult(
                     domain=domain,
                     company=company,
                     text=text,
                     model_used=model_used,
+                    image_paths=image_paths,
                 )
         except Exception as exc:
             return SubagentResult(
@@ -82,8 +92,13 @@ async def _run_one(
 async def run_workflow(
     query: str,
     classification: QueryClassification,
+    run_dir: Path,
 ) -> WorkflowResult:
-    """Spawn subagents per the classification, respecting MAX_CONCURRENT_AGENTS."""
+    """Spawn subagents per the classification, respecting MAX_CONCURRENT_AGENTS.
+
+    `run_dir` is needed because each subagent may extract images from its
+    response into `<run_dir>/images/`.
+    """
     settings = get_settings()
     sem = asyncio.Semaphore(settings.MAX_CONCURRENT_AGENTS)
 
@@ -99,9 +114,9 @@ async def run_workflow(
     for domain in classification.domains:
         if fanout and domain != Domain.PORTFOLIO:
             for company in classification.companies:
-                tasks.append(asyncio.create_task(_run_one(domain, query, company, sem)))
+                tasks.append(asyncio.create_task(_run_one(domain, query, company, sem, run_dir)))
         else:
-            tasks.append(asyncio.create_task(_run_one(domain, query, None, sem)))
+            tasks.append(asyncio.create_task(_run_one(domain, query, None, sem, run_dir)))
 
     results = await asyncio.gather(*tasks)
 

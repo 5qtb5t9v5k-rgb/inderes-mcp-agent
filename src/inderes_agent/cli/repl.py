@@ -73,7 +73,7 @@ async def handle_query(query: str, state: ConversationState) -> None:
 
         console.print(f"[dim]·[/dim] [cyan]subagentit ajetaan, voi kestää 30–90 s…[/cyan]")
         t = time.time()
-        workflow_result = await run_workflow(query, classification)
+        workflow_result = await run_workflow(query, classification, run_dir=run_dir)
         for sr in workflow_result.subagent_results:
             tag = "[red]ERROR[/red]" if sr.error else "[green]ok[/green]"
             company = f" — {sr.company}" if sr.company else ""

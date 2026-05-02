@@ -205,11 +205,11 @@ def summarize_run(run_dir: Path) -> str:
             if err:
                 lines.append(f"❌ **virhe:** {err}")
             else:
-                # Full text in the narrative — no truncation. See note above.
+                # The text is already structured markdown (text + ```python``` code
+                # blocks + ``` output blocks + ![chart](images/...) refs) — render
+                # it inline so code is highlighted and images display.
                 text = (sa.get("text") or "").strip() or "_(empty response)_"
-                lines.append("```")
                 lines.append(text)
-                lines.append("```")
             lines.append("")
 
     # Synthesis

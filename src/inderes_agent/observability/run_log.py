@@ -82,6 +82,7 @@ def write_run(
                     "model_used": sr.model_used,
                     "error": sr.error,
                     "text": sr.text,
+                    "image_paths": sr.image_paths,
                 },
                 ensure_ascii=False,
                 indent=2,
