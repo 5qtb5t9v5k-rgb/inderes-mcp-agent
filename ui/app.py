@@ -264,7 +264,7 @@ def render_trace_expander(run_dir: Path) -> None:
     lang = st.session_state.get("ui_lang", "fi")
 
     _trace_label = (
-        "🔍 Subagenttien jälki" if lang == "fi" else "🔍 Subagent trace"
+        "🔍 Agenttien toimintaloki" if lang == "fi" else "🔍 Agent activity log"
     )
     with st.expander(_trace_label, expanded=False):
         if routing_path.exists():
@@ -291,14 +291,17 @@ def render_trace_expander(run_dir: Path) -> None:
             else:
                 render_agent_output(sa.get("text"))
 
-        # Full narrative — same data the CLI writes to narrative.md, rendered
-        # inline in a scrollable container so the user can review the routing
-        # decisions, tool-call timeline, and raw subagent answers without
-        # leaving the app.
-        render_full_narrative(run_dir, st.session_state.get("ui_lang", "fi"))
-        narrative_path = run_dir / "narrative.md"
-        if narrative_path.exists():
-            st.caption(f"On-disk: `{narrative_path}`")
+        # Full narrative tucked behind its own collapsed expander — the
+        # primary trace info (routing card + agent rows) is enough for most
+        # reads; the full narrative is for deep-diving into the run.
+        _narr_label = (
+            "📜 Täydellinen ajoloki" if lang == "fi" else "📜 Full run log"
+        )
+        with st.expander(_narr_label, expanded=False):
+            render_full_narrative(run_dir, lang)
+            narrative_path = run_dir / "narrative.md"
+            if narrative_path.exists():
+                st.caption(f"On-disk: `{narrative_path}`")
 
 
 # ---------------------------------------------------------------------------

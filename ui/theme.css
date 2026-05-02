@@ -25,6 +25,13 @@ html, body, .stApp {
   background: var(--ia-bg) !important;
   color: var(--ia-text) !important;
   font-family: var(--ia-mono);
+  /* Disable the browser's scroll-anchoring heuristic. When an expander opens
+     mid-page, the browser otherwise tries to keep the visual position of
+     elements below the click constant — which means it scrolls *down* to
+     compensate for the expander pushing those elements lower. The user reads
+     top-to-bottom, so we want the click point to stay where it is and the
+     new content to push the rest down naturally. */
+  overflow-anchor: none;
 }
 .stApp, .stApp * { font-family: var(--ia-mono); }
 .stApp { background: var(--ia-bg) !important; }
