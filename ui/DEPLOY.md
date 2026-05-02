@@ -75,7 +75,10 @@ Streamlit Cloud will auto-detect it.
    - **Branch:** `main`
    - **Main file path:** `ui/app.py`
 4. **Advanced settings:**
-   - Python version: `3.13` (or latest available)
+   - Python version: `3.13` — **important**. Streamlit Cloud defaults to 3.14,
+     which `agent-framework-gemini` (still in alpha) doesn't support yet.
+     The repo also ships a `runtime.txt` pinning Python 3.13, so this should
+     be enforced automatically.
    - Sharing: **Public** (this is Path C)
 5. Click **Deploy**.
 
