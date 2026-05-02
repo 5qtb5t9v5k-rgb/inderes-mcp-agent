@@ -183,9 +183,9 @@ input:focus, textarea:focus { border-color: var(--ia-amber) !important; }
      when the box is collapsed. */
   overflow: hidden !important;
 }
-/* The summary row hosts label + icon — force a solid background and a
-   higher z-index so any in-flight transition layer beneath it gets
-   covered instead of painting through. */
+/* The summary row hosts label + icon. Force a solid background and a
+   higher z-index so any in-flight transition layer beneath it gets covered
+   instead of painting through. */
 [data-testid="stStatusWidget"] details > summary,
 [data-testid="stStatus"] details > summary,
 [data-testid="stStatusWidget"] summary,
@@ -194,12 +194,21 @@ input:focus, textarea:focus { border-color: var(--ia-amber) !important; }
   position: relative !important;
   z-index: 2 !important;
 }
-/* Belt-and-suspenders: also pin the icon font for icons inside status. */
+/* Hide Streamlit's Material Symbols icon inside the status widget entirely.
+   The icon font sometimes loses the race against page render and the literal
+   ligature text ("check_circle" / "progress_activity") shows up on top of
+   the label, producing the "ieckalmis"-style overlap. We don't actually need
+   the icon — the amber left border and the label itself convey the state. */
 [data-testid="stStatusWidget"] [data-testid="stIconMaterial"],
-[data-testid="stStatus"] [data-testid="stIconMaterial"] {
-  font-family: "Material Symbols Rounded", "Material Symbols Outlined",
-               "Material Icons", sans-serif !important;
+[data-testid="stStatus"] [data-testid="stIconMaterial"],
+[data-testid="stStatusWidget"] svg,
+[data-testid="stStatus"] svg {
+  display: none !important;
 }
+/* Custom state indicator via the left border color: amber while running,
+   green when complete, red on error. Streamlit doesn't expose the state in
+   the DOM directly, but the icon's nearby data-testid sometimes does — so
+   we just keep the amber default and let the user read the label. */
 
 /* metrics */
 [data-testid="stMetric"] {
