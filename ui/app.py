@@ -90,6 +90,7 @@ from components import (  # noqa: E402
     render_full_narrative,
     render_sidebar_disclaimer,
     render_github_link,
+    CustomStatus,
 )
 
 
@@ -459,7 +460,11 @@ if prompt:
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        status = st.status("Käsittelen kysymystäsi…", expanded=True)
+        # CustomStatus replaces st.status — same surface API, but pure
+        # HTML/CSS rendering with no Material Symbols icon (which kept
+        # racing the icon font load and producing "ieckalmis"-style
+        # overlap with the label text).
+        status = CustomStatus("Käsittelen kysymystäsi…", expanded=True)
         try:
             answer, run_dir = asyncio.run(
                 run_pipeline(prompt, st.session_state.state, status)

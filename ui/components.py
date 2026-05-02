@@ -591,6 +591,68 @@ def render_full_narrative(run_dir: Path, lang: str = "fi") -> None:
 # Statusbar — pinned at the bottom of the main column
 # ---------------------------------------------------------------------------
 
+class CustomStatus:
+    """Drop-in replacement for ``st.status`` that doesn't use Material Symbols.
+
+    Same surface API (``write``, ``update``, context-manager) but renders a
+    plain ``<details>``/``<summary>`` block via ``st.markdown(..., unsafe_html)``.
+    No icon font race, no transition animations, no "ieckalmis"-style
+    overlap. State (running / complete / error) drives the left-border color
+    and a label-side dot indicator.
+
+    Use just like st.status::
+
+        status = CustomStatus("Käsittelen kysymystäsi…", expanded=True)
+        status.write("⚙️  Reitittäjä…")
+        status.update(label="Valmis", state="complete", expanded=False)
+    """
+
+    def __init__(self, label: str, expanded: bool = True) -> None:
+        self._placeholder = st.empty()
+        self._label = label
+        self._lines: list[str] = []
+        self._state = "running"
+        self._expanded = expanded
+        self._render()
+
+    def write(self, text: str) -> None:
+        self._lines.append(str(text))
+        self._render()
+
+    def update(
+        self,
+        label: str | None = None,
+        state: str | None = None,
+        expanded: bool | None = None,
+    ) -> None:
+        if label is not None:
+            self._label = label
+        if state is not None:
+            self._state = state
+        if expanded is not None:
+            self._expanded = expanded
+        self._render()
+
+    def __enter__(self) -> "CustomStatus":
+        return self
+
+    def __exit__(self, *_args: Any) -> None:
+        return None
+
+    def _render(self) -> None:
+        details_attr = " open" if self._expanded else ""
+        body_html = "<br>".join(_esc(line) for line in self._lines)
+        html = (
+            f'<details class="ia-cs ia-cs-{_esc(self._state)}"{details_attr}>'
+            f'<summary><span class="ia-cs-dot"></span>'
+            f'<span class="ia-cs-label">{_esc(self._label)}</span></summary>'
+            f'<div class="ia-cs-body">{body_html}</div>'
+            f'</details>'
+        )
+        # st.html() would scope this away; we want page-level CSS to apply.
+        self._placeholder.markdown(html, unsafe_allow_html=True)
+
+
 def render_statusbar(meta: dict | None = None, lang: str = "fi") -> None:
     """Tech status footer — only system info, no disclaimer text.
 

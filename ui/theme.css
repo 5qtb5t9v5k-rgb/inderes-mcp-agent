@@ -272,6 +272,62 @@ input:focus, textarea:focus { border-color: var(--ia-amber) !important; }
 .ia-tape-item .ia-dn { color: var(--ia-red); }
 @keyframes ia-scroll { from { transform: translateX(0); } to { transform: translateX(-100%); } }
 
+/* CUSTOM STATUS — replaces st.status. No Material Symbols, no transition
+   animations. Pure <details>/<summary> with our own dot indicator. */
+.ia-cs {
+  background: var(--ia-panel);
+  border: 1px solid var(--ia-border);
+  border-left: 2px solid var(--ia-amber);
+  margin: 0 0 8px 0;
+  font-size: 12px;
+}
+.ia-cs.ia-cs-complete { border-left-color: var(--ia-green); }
+.ia-cs.ia-cs-error    { border-left-color: var(--ia-red);   }
+.ia-cs > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+.ia-cs > summary::-webkit-details-marker { display: none; }
+.ia-cs > summary::marker { content: ""; }
+.ia-cs .ia-cs-label {
+  color: var(--ia-amber);
+  font-family: var(--ia-mono);
+  letter-spacing: 0.04em;
+  font-size: 12px;
+}
+.ia-cs.ia-cs-complete .ia-cs-label { color: var(--ia-green); }
+.ia-cs.ia-cs-error    .ia-cs-label { color: var(--ia-red);   }
+.ia-cs .ia-cs-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--ia-amber);
+  animation: ia-cs-pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.ia-cs.ia-cs-complete .ia-cs-dot {
+  background: var(--ia-green);
+  animation: none;
+}
+.ia-cs.ia-cs-error .ia-cs-dot {
+  background: var(--ia-red);
+  animation: none;
+}
+@keyframes ia-cs-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.8); }
+  50%      { opacity: 1.0; transform: scale(1.1); }
+}
+.ia-cs > .ia-cs-body {
+  padding: 4px 12px 12px 28px;
+  color: var(--ia-text);
+  font-family: var(--ia-mono);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
 /* HERO — top intro panel: short description + agent roster + GitHub CTA.
    Replaces the old big-orange disclaimer. The disclaimer line lives at the
    bottom of this panel as fine print. */
