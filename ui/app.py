@@ -471,7 +471,27 @@ async def run_pipeline(query: str, state: ConversationState, status) -> tuple[st
                 html=True,
             )
 
-        workflow_result = await run_workflow(query, classification, run_dir=run_dir)
+        # Inject conversation context into the SUBAGENT prompt as well, not
+        # just the router. Without this, a followup like "Onko jompikumpi
+        # näistä yhtiöistä mallisalkussa?" lands on the subagent without
+        # any indication of what "näistä" refers to, and the subagent has
+        # to ask for clarification. The router already knows the previous
+        # turn's companies, but it routes — it doesn't propagate context to
+        # subagent prompts. So we do that here.
+        augmented_query = query
+        if state.last_companies and not classification.is_comparison:
+            ctx_line = (
+                f"[CONTEXT: edellinen kysely käsitteli yhtiöitä: "
+                f"{', '.join(state.last_companies)}. "
+                f"Jos tämä kysymys viittaa 'näihin yhtiöihin', 'jompaan kumpaan' "
+                f"tai pronominein ilman selvää viittausta, tulkitse niiden "
+                f"viittaavan yllä mainittuihin yhtiöihin.]\n\n"
+            )
+            augmented_query = ctx_line + query
+
+        workflow_result = await run_workflow(
+            augmented_query, classification, run_dir=run_dir,
+        )
 
         # Phase 3: per-agent results
         for sr in workflow_result.subagent_results:

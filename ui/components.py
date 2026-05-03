@@ -614,13 +614,17 @@ def render_lead_answer(text: str | None) -> None:
 
 
 def render_followup_chips(text: str | None, run_dir_name: str = "live") -> None:
-    """Render LEAD's followup questions as clickable buttons.
+    """Render LEAD's followup questions as small horizontal chip buttons.
 
-    Each click writes the question into ``st.session_state.pending_query``,
-    which the main script picks up next rerun and treats as if the user had
-    typed and submitted it. Buttons need unique keys per chat-message; we
-    seed them with ``run_dir_name`` so old assistant messages can still
-    surface their followups without colliding with newer ones.
+    Three buttons sit side-by-side in equal columns so they're tertiary in
+    visual hierarchy — "if you're curious, here are next steps" rather than
+    "do this now". Click writes the question into
+    ``st.session_state.pending_query``, which the main script picks up next
+    rerun and treats as if the user had typed and submitted it.
+
+    Buttons need unique keys per chat-message; we seed them with
+    ``run_dir_name`` so old assistant messages can still surface their
+    followups without colliding with newer ones.
     """
     if not text:
         return
@@ -633,11 +637,18 @@ def render_followup_chips(text: str | None, run_dir_name: str = "live") -> None:
         f'<div class="ia-followup-label">{label}</div>',
         unsafe_allow_html=True,
     )
+    cols = st.columns(len(followups))
     for i, question in enumerate(followups):
-        key = f"sugg_{run_dir_name}_{i}"
-        if st.button(question, key=key, use_container_width=True):
-            st.session_state["pending_query"] = question
-            st.rerun()
+        with cols[i]:
+            key = f"sugg_{run_dir_name}_{i}"
+            if st.button(
+                question,
+                key=key,
+                use_container_width=True,
+                type="secondary",
+            ):
+                st.session_state["pending_query"] = question
+                st.rerun()
 
 
 # ---------------------------------------------------------------------------

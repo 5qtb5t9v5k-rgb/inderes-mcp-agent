@@ -370,16 +370,44 @@ input:focus, textarea:focus { border-color: var(--ia-amber) !important; }
 }
 
 /* FOLLOWUP CHIPS — clickable suggestion buttons under each LEAD answer.
-   Streamlit's st.button uses our amber-themed primary color from
-   .streamlit/config.toml, we just style the label row above the buttons. */
+   Tertiary in visual hierarchy: small, outlined, dim text. The amber
+   primaryColor in .streamlit/config.toml normally floods every button,
+   so we override that within the followup-label-following sibling block
+   to render an outlined-ghost style. */
 .ia-followup-label {
   color: var(--ia-amber);
   font-size: 11px;
   letter-spacing: 0.14em;
   font-weight: 700;
-  margin: 18px 0 8px 0;
+  margin: 18px 0 6px 0;
   padding-bottom: 4px;
   border-bottom: 1px dotted var(--ia-border);
+}
+/* Style buttons that follow our followup-label. Streamlit nests the
+   button inside [data-testid="stButton"]; we target everything inside
+   it. The followup-label and its button cluster live in the same
+   chat-message container so the sibling combinator finds them. */
+.ia-followup-label ~ div [data-testid="stButton"] > button,
+.ia-followup-label ~ div [data-testid="stColumn"] [data-testid="stButton"] > button {
+  background: transparent !important;
+  color: var(--ia-dim) !important;
+  border: 1px solid var(--ia-border) !important;
+  border-radius: 0 !important;
+  font-family: var(--ia-mono) !important;
+  font-size: 11px !important;
+  letter-spacing: 0.04em !important;
+  font-weight: 400 !important;
+  padding: 6px 10px !important;
+  white-space: normal !important;
+  line-height: 1.35 !important;
+  min-height: 0 !important;
+  text-align: left !important;
+}
+.ia-followup-label ~ div [data-testid="stButton"] > button:hover,
+.ia-followup-label ~ div [data-testid="stColumn"] [data-testid="stButton"] > button:hover {
+  border-color: var(--ia-amber) !important;
+  color: var(--ia-amber) !important;
+  background: rgba(255, 210, 74, 0.04) !important;
 }
 
 /* HERO — top intro panel: short description + agent roster + GitHub CTA.
