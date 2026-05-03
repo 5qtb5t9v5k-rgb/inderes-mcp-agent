@@ -610,6 +610,27 @@ input:focus, textarea:focus { border-color: var(--ia-amber) !important; }
   color: var(--ia-text);
 }
 .ia-lead-answer strong { color: var(--ia-amber); font-weight: 600; }
+/* External source links inside LEAD answer + agent output. The
+   target="_blank" attribute is added in components.py so the link opens
+   in a new tab; here we just style it: amber, underlined, with a
+   small ↗ arrow appended via ::after to signal "leaves the app". */
+.ia-lead-answer a[target="_blank"],
+.ia-agent-output a[target="_blank"] {
+  color: var(--ia-amber);
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 210, 74, 0.4);
+  text-underline-offset: 2px;
+}
+.ia-lead-answer a[target="_blank"]:hover,
+.ia-agent-output a[target="_blank"]:hover {
+  text-decoration-color: var(--ia-amber);
+}
+.ia-lead-answer a[target="_blank"]::after,
+.ia-agent-output a[target="_blank"]::after {
+  content: " ↗";
+  font-size: 0.85em;
+  opacity: 0.7;
+}
 .ia-lead-answer > p:first-child:has(> strong:first-child) {
   border-left: 2px solid var(--ia-amber);
   padding: 8px 12px;

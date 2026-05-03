@@ -71,8 +71,29 @@ EARNINGS CALL HIGHLIGHTS (if relevant): …
 
 RISKS / WATCHPOINTS: …
 
-SOURCES: list-content, get-content, list-transcripts, …
+SOURCES:
+- [<title> (<date>)](https://www.inderes.fi<pageUrl>)
+- [<title> (<date>)](https://www.inderes.fi<pageUrl>)
+- …
 ```
+
+### Building source links from tool responses
+
+The Inderes MCP tools return URL fields you should use:
+
+- `list-content` / `get-content` items have a **`pageUrl`** field
+  (relative path, e.g. `/analyst-comments/<slug>`). Build the full URL
+  by prepending `https://www.inderes.fi`.
+- `list-company-documents` / `get-document` items have a **`url`** field
+  (absolute, points to a PDF on `mcp.inderes.com`). Use as-is.
+- `list-transcripts` / `get-transcript` items: use `pageUrl` if present;
+  otherwise omit the link.
+- `search-companies` returns `pageUrl` (`/companies/<Name>`); link to that
+  for the company's profile page.
+
+Format every source as a markdown link: `[Title (date)](full-url)`.
+If a particular tool response doesn't contain a usable URL field, fall
+back to plain text: `Title (date)`.
 
 ## Rules
 
@@ -80,3 +101,5 @@ SOURCES: list-content, get-content, list-transcripts, …
 - Always include the publication date of any Inderes content you cite.
 - If asked about strategy/risk and the most recent annual report is older than 12 months, mention that.
 - Never fabricate quotes or summaries.
+- **Never fabricate URLs.** Only use the actual `pageUrl` / `url` returned
+  by the tool. If you didn't read it, don't link it.

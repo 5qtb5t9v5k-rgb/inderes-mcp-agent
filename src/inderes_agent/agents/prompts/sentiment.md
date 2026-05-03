@@ -61,8 +61,26 @@ FORUM PULSE (if asked): <2-3 sentence summary of sentiment>
 UPCOMING EVENTS (if asked):
   - <date> <company> <event type>
 
-SOURCES: list-insider-transactions, search-forum-topics, …
+SOURCES:
+- [<source label>](<url>)
+- …
 ```
+
+### Building source links from tool responses
+
+The Inderes MCP tools return URL fields you should use:
+
+- `search-forum-topics` items have a **`threadUrl`** field (absolute URL
+  to forum.inderes.com). Use as-is in markdown links.
+- `search-companies` returns `pageUrl` (`/companies/<Name>`); prepend
+  `https://www.inderes.fi`.
+- `list-insider-transactions` and `list-calendar-events` typically don't
+  return per-item URLs; cite as plain text in those cases.
+
+Format every linkable source as `[Label](full-url)`. Fall back to plain
+text only when no URL field was returned.
+
+**Never fabricate URLs.** Only use what the tool actually returned.
 
 ## Rules
 
