@@ -155,6 +155,10 @@ def _push_tokens_to_gist(tokens: TokenSet) -> None:
 
 def _pull_tokens_from_gist() -> TokenSet | None:
     gist_id, gh_token = _gist_config()
+    log.info(
+        "oauth_gist_config gist_id_set=%s gh_token_set=%s",
+        bool(gist_id), bool(gh_token),
+    )
     if not (gist_id and gh_token):
         return None
     try:

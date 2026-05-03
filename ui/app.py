@@ -40,17 +40,30 @@ def _bridge_secrets_to_env() -> None:
     Locally there's typically no secrets.toml — accessing `st.secrets.items()`
     raises `StreamlitSecretNotFoundError` in that case. We treat that as "no
     secrets to bridge" and continue silently.
+
+    Uses direct assignment (not setdefault) so that if the env var was
+    pre-seeded with an empty/stale value somewhere upstream, the secret
+    still wins. Also prints a one-liner at startup listing which secret
+    keys got bridged — useful when debugging "why isn't my new secret
+    being read" issues in the cloud logs.
     """
     try:
         items = list(st.secrets.items())
-    except Exception:
+    except Exception as exc:
+        print(f"[secrets] bridge skipped: {exc}", flush=True)
         return  # no secrets.toml configured — fine in local dev
+    bridged: list[str] = []
     for key, value in items:
         # Nested TOML tables (like [INDERES_OAUTH_TOKENS]) get serialised to JSON.
         if isinstance(value, dict):
-            os.environ.setdefault(f"{key}_JSON", json.dumps(value))
+            os.environ[f"{key}_JSON"] = json.dumps(value)
+            bridged.append(f"{key}_JSON")
         else:
-            os.environ.setdefault(key, str(value))
+            os.environ[key] = str(value)
+            bridged.append(key)
+    # Mask values that look like secrets in the print, but show keys so we
+    # can verify the right ones got bridged.
+    print(f"[secrets] bridged {len(bridged)} keys: {', '.join(sorted(bridged))}", flush=True)
 
 
 _bridge_secrets_to_env()
