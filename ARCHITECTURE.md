@@ -105,6 +105,26 @@ have too many options at every reasoning step → degraded tool-call accuracy.
 Splitting by responsibility keeps each LLM context tight and each system prompt
 focused. This is the highest-leverage decision in the architecture.
 
+**Prompt preamble — current date.** `_common.load_prompt()` prepends a
+`# CURRENT DATE` header (ISO + Finnish weekday) to every loaded prompt before
+returning it. Without this, Gemini falls back to its training cutoff when
+asked "tänään" / "tällä viikolla" — observed answers from "14.5.2025" when
+the real date was 2026-05-03. The same date is also prefixed onto every
+per-query user prompt in `workflows.py` and `synthesis.py` (system
+instructions can lose attention in long contexts; user-prompt prefix is
+read first by the model). Router's inline `_ROUTER_INSTRUCTIONS` is
+intentionally exempt — routing is a classification task that doesn't need
+date context.
+
+**Prompt preamble — thought traces.** Every subagent prompt mandates a
+single-line `**Ajatus:** ...` reasoning rubric at the top of its response,
+explaining which tools it'll call and why. LEAD mandates a
+`**💭 Perustelut:** ...` callout at the top of every synthesis describing
+how it combined the subagents' outputs. The Streamlit UI styles these
+distinctly (violet for subagents, amber for LEAD), surfacing the
+multi-agent reasoning to the user without burying it behind tool-call
+logs.
+
 ### Inderes MCP integration
 
 Files: [`src/inderes_agent/mcp/`](src/inderes_agent/mcp/)

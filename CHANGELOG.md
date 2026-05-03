@@ -4,6 +4,85 @@ All notable changes to this project. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com); the project does not yet follow
 [SemVer](https://semver.org) strictly.
 
+## [unreleased] — 2026-05-02 / 2026-05-03
+
+A heavy iteration on the Streamlit UI plus operational improvements to the
+agent layer. No breaking changes.
+
+### Added — Streamlit UI ("Trading Desk" visual layer)
+
+- Bloomberg-style dark theme: JetBrains Mono throughout, amber accents, agent
+  glyphs (◆ LEAD, ▲ QUANT, ■ RESEARCH, ● SENTIMENT, ✦ PORTFOLIO).
+- Hero panel with brand equation `INDERES + MCP + AGENTIT = INSIGHTS` + agent
+  roster.
+- Sidebar: red disclaimer at top (single source of truth for legal notice),
+  architecture summary, GitHub CTA, agent personas with descriptions,
+  recent runs list.
+- Routing card with colored domain pills + free-form `PERUSTELU` (pink/violet
+  accent so prose reasoning is distinct from categorical fields).
+- Per-agent rows in the activity log expander: glyph + role + model + status
+  badge; full structured output renders inline below each row.
+- `CustomStatus` widget replaces `st.status` — pulsing CSS-only dot
+  indicator for state, no Material Symbols icon-font race conditions.
+- Markdown table + strikethrough rendering enabled for subagent output.
+- Python sandbox stdout (e.g. `print(df)` results) auto-detected and wrapped
+  in a green-bordered ```output``` block, distinct from the blue-bordered
+  source-code blocks.
+- `.streamlit/config.toml` sets primary color to amber so Streamlit's own
+  chrome (chat input focus ring, progress bars) is on-brand.
+
+### Added — agent reasoning visibility (#3 from BACKLOG.md)
+
+- Mandatory `**Ajatus:**` thought-trace line at the top of every subagent
+  response — surfaces tool-selection reasoning before the structured answer.
+  Violet-bordered italic styling in `.ia-agent-output`.
+- Mandatory `**💭 Perustelut:**` reasoning callout at the top of every LEAD
+  synthesis — meta-level commentary on how the subagents' outputs were
+  combined. Amber-bordered styling in `.ia-lead-answer`, distinct from the
+  subagents' violet so visual hierarchy is preserved.
+
+### Added — date awareness in prompts
+
+- `load_prompt()` now prepends a `# CURRENT DATE` header (ISO + Finnish
+  weekday) to every loaded subagent prompt. Without this, Gemini was
+  answering "tänään 14.5.2025" when the system date was 2026-05-03.
+- `today_prompt_prefix()` also prefixes every per-query user prompt with
+  the same date stamp (belt-and-suspenders against system-instruction
+  attention loss in long contexts).
+
+### Added — durable OAuth token persistence
+
+- New optional GitHub Gist mirror for `tokens.json`. Configure
+  `INDERES_TOKENS_GIST_ID` and `INDERES_TOKENS_GH_TOKEN` and the agent
+  pushes refreshed tokens to a private gist on every refresh, pulls from
+  the gist on cold start. Solves the Streamlit Cloud problem where
+  refresh-token rotation eats itself across container restarts.
+- See `ui/DEPLOY.md §6.5` for setup.
+
+### Fixed
+
+- Material Symbols icon font no longer overridden by the global mono font
+  rule (fixed `keyboard_double_arrow_right` ligature text in sidebar
+  collapse arrow + `check_circle` overlap on status widget).
+- Markdown tables in subagent output now render correctly (was missing
+  `table` extension on `MarkdownIt("commonmark")`).
+- Raw Python source from QUANT (no fences) auto-wraps in ```python``` so
+  it renders as code instead of as headers/paragraphs.
+- Trace-expander toggling no longer auto-scrolls Chrome to the bottom of
+  the page (`overflow-anchor: none` + JS scrollY restore on summary
+  click).
+
+### Removed
+
+- "📜 Täydellinen ajoloki" expander — was rendering the full narrative.md
+  inline for every old assistant message on every Streamlit rerun, the
+  dominant slowdown as chat history grew. The narrative.md file is still
+  written to disk by the pipeline.
+- Daily-quota progress bar from the sidebar — cap mechanism still works
+  server-side; just don't surface the count.
+
+---
+
 ## [0.1.0] — 2026-05-01
 
 Initial release. The system is functionally complete: it ingests natural-language
@@ -130,8 +209,10 @@ Ideas worth exploring; none are committed.
 
 - Upgrade only the lead to a stronger model (e.g. `gemini-2.5-pro`) for better
   synthesis quality without 4× cost on subagents.
-- Web UI via Streamlit hosted on Streamlit Community Cloud with a single
-  pre-cached OAuth token (personal-use deployment).
+- ~~Web UI via Streamlit hosted on Streamlit Community Cloud with a single
+  pre-cached OAuth token (personal-use deployment).~~ Implemented in
+  [unreleased]; tokens persist via optional GitHub Gist mirror. See
+  `BACKLOG.md` for further agentic-improvement ideas.
 - Streaming synthesis output in the REPL (the streaming path in
   `FallbackGeminiChatClient` is wired but not used by the current REPL flow).
 - Automatic retry-the-whole-query if too many subagents fail simultaneously

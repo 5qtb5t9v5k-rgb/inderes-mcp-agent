@@ -1,6 +1,6 @@
 # Contributing
 
-Guide for working on `inderes-research-agent` — local development setup, how to
+Guide for working on `inderes-mcp-agent-system` — local development setup, how to
 test, where extension points live, and conventions for changes.
 
 This is a personal-use project, not an open-source library. Conventions below
@@ -37,8 +37,8 @@ are for internal consistency rather than for external contributors.
 ### Setup
 
 ```bash
-git clone <repo-url>
-cd inderes-research-agent
+git clone https://github.com/5qtb5t9v5k-rgb/inderes-mcp-agent-system
+cd inderes-mcp-agent-system
 
 uv python install 3.13
 uv venv --python-preference only-managed --python 3.13

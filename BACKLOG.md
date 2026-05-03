@@ -4,6 +4,59 @@ Ideoita joita ei ole vielä toteutettu. Järjestys ~prioriteetin mukaan, ei kova
 
 Kiinnostavin = "miksi siirtyä reaktiivisesta proaktiiviseen". Suurin oppimisarvo = "miten agentit oikeasti tekevät yhteistyötä".
 
+**Toteutetut alunperin samasta listasta:**
+- ✅ #3 Thought traces (Ajatus-rivit subagenteilla, 💭 Perustelut LEADilla) — PR #18, #20, #21
+
+---
+
+## #1 Plan-then-execute LEADilla  *(keskisuuri)*
+
+LEAD ei tällä hetkellä todellisuudessa "ajattele" suunnittelu-tasolla — se vain reitittää
+classify_query:n kautta ja synteseuraa. Lisää välivaihe ennen subagenttien dispatchia:
+
+1. Router luo karkean classification (nyk.)
+2. **UUSI** — LEAD kirjoittaa **strukturoidun suunnitelman**:
+   - Per subagentti: tarkennettu kysymys / fokus
+   - Mahdollisesti agenteittain pudotuksia ("skip sentiment, kysely on puhtaasti numerollinen")
+   - Mahdollisesti lisäyksiä ("kysymys vaatii myös portfolio-näkökulman vaikka router ei nostanut")
+3. Subagentit ajetaan plan-tasolla räätälöidyillä prompteilla
+4. Synteesi (nyk.)
+
+UI näyttää suunnitelman omana blokkinaan **🧠 Suunnitelma** ennen subagenttien
+toimintaa — käyttäjä näkee ennen kuin mitään ajetaan, mitä LEAD aikoo tehdä.
+
+**Riippuvuus:** rakennettu PR #21:n LEADin "💭 Perustelut" -callouten päälle, ehkä jo
+asettelu valmiina.
+
+**Riski:** ylimääräinen LLM-kutsu hidastaa — kannattaa tehdä rinnakkain reitityksen
+kanssa tai käyttää nopeaa Flash-mallia.
+
+---
+
+## #2 Reflektio + retry kun output on outoa  *(keskisuuri)*
+
+Subagentit antavat joskus järjenvastaisia vastauksia (negatiivinen CAGR positiivisilla
+arvoilla, tyhjät vastaukset, vain "data ei saatavilla", anomalous numbers). Lisää
+post-processing -kerros joka:
+
+1. Tarkistaa output:n red flag -kriteereillä:
+   - Tyhjä / "_(empty response)_"
+   - "ei saatavilla", "couldn't compute", "N/A" -tyyppisiä fraaseja
+   - Numeerinen poikkeavuus (esim. CAGR > 100% tai < -50%)
+   - Vain Ajatus-rivi, ei vastaussisältöä
+2. Jos red flag -> **retry samalla agentilla** mutta lisätyllä kontekstilla:
+   *"Edellinen vastauksesi sisälsi: [output]. Tarkista onko järkevä, jos ei niin
+   vastaa toisin. Jos on, perustele miksi tämä numero / fraasi pitää paikkansa."*
+3. Cap retry määrä 1:een per agentti (kustannukset, pingvinin loop)
+4. UI näyttää retry-tilan: "▲ QUANT — REFLEKTOITU (alkuperäinen vaikutti
+   epätavalliselta)"
+
+**Riippuvuus:** toimii itsenäisesti, mutta arvokkaampi kun yhdistetty plan-then-execute:n
+kanssa (LEAD näkee retry:n ja voi adapt synteesin).
+
+**Riski:** retry voi maskata oikeasti puuttuvan datan oletuksilla — pitää erottaa
+"ei dataa" (rehellinen) vs "outo data" (tarkista).
+
 ---
 
 ## #4 Watchlist + päivittäinen briefing  *(iso, eri päätelaite)*

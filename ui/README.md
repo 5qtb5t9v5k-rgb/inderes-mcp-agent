@@ -19,13 +19,43 @@ Inderes login window pops up.
 
 ## What the UI does
 
-- **Chat interface** with persistent conversation history per session
-- **Live progress** during query execution: routing → subagents → synthesis
-- **Subagent trace** shown in an expander under each answer, including:
-  - Routing decision and reasoning
-  - Per-subagent model used and full output text
-  - Duration, error count, fallback events
-- **Sidebar** with a clear-chat button and a list of recent runs
+The Streamlit app wears a "Trading Desk" theme: dark Bloomberg-style chrome,
+JetBrains Mono throughout, color-coded agent personas with glyphs (◆ LEAD,
+▲ QUANT, ■ RESEARCH, ● SENTIMENT, ✦ PORTFOLIO).
+
+### Top of page (hero)
+
+- Brand line: `INDERES//AGENT  DESK  ● VERKOSSA`
+- Brand equation: `INDERES + MCP + AGENTIT = INSIGHTS`
+- One-line tagline + agent roster in their persona colors
+
+### Chat (main column)
+
+- **Live progress** during query execution via a custom status box (no
+  Material Symbols icon — pulsing CSS dot indicator). Phases:
+  Reitittäjä → Subagentit → LEAD → Valmis.
+- **LEAD synthesis** answer with a `**💭 Perustelut:**` amber-callout at
+  the top — meta-level reasoning for how the subagents' outputs were
+  combined. Then the answer body.
+- **🔍 Agenttien toimintaloki** expander at the bottom (collapsed by
+  default) showing routing decision, per-subagent rows (with `**Ajatus:**`
+  thought-trace styled in violet italic), and full output for each agent
+  including code blocks + sandbox stdout (green-bordered) + tables.
+
+### Sidebar (left)
+
+- Red-bordered legal disclaimer at the top
+- `ARKKITEHTUURI` panel: short description of LEAD → subagents → MCP flow
+  plus a STACK/DATA/LOG/STATUS key-value strip
+- `LISÄTIEDOT GITHUBISSA →` button linking to the repo
+- `AGENTIT` panel: each persona with glyph, role, and short FI description
+- `KESKUSTELU` clear-chat button
+- `VIIMEISIMMÄT AJOT` list of the 8 most recent runs on disk
+
+### Bottom
+
+- Status bar with MCP host, model, error/fallback counters
+- Chat input "Kysy jotain Pohjoismaisista osakkeista…"
 
 ## What it doesn't do (yet)
 

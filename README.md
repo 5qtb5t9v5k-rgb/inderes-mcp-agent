@@ -94,8 +94,8 @@ multi-domain comparison → slower due to per-company fan-out).
 ### Install
 
 ```bash
-git clone <repo-url>
-cd inderes-research-agent
+git clone https://github.com/5qtb5t9v5k-rgb/inderes-mcp-agent-system
+cd inderes-mcp-agent-system
 
 uv python install 3.13
 uv venv --python-preference only-managed --python 3.13
