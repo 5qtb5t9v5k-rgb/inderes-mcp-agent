@@ -195,14 +195,22 @@ def _save_tokens(tokens: TokenSet) -> None:
     _push_tokens_to_gist(tokens)
 
 
+_GIST_PULLED_THIS_PROCESS = False
+
+
 def _load_tokens() -> TokenSet | None:
-    """Load tokens with the cheapest source first.
+    """Load tokens with the cheapest source first, but pull from gist exactly
+    once per process so a stale local cache can't dominate forever.
 
     Order of operations:
-      1. Local cache (fast — no network) if it exists.
-      2. Gist (one HTTPS round-trip, only when local cache is missing — i.e.
-         cold container start).
-      3. Env-var bootstrap (fallback if gist is unavailable / not configured).
+      1. **First call within this process**, if gist mode is configured: pull
+         from gist, overwrite local cache. This handles the Streamlit Cloud
+         hot-reload case where ``/tmp`` survives a code-change reload and the
+         old container's stale ``tokens.json`` would otherwise win forever.
+      2. Local cache (fast — no network) on every subsequent call.
+      3. Gist again, only if local cache disappears (rare — full container
+         restart).
+      4. Env-var bootstrap (last-resort fallback for cold start without gist).
 
     Pulling from the gist on EVERY auth_flow call would add ~200ms per MCP
     request (and the user's ``auth_flow`` calls this on every request to
@@ -215,19 +223,34 @@ def _load_tokens() -> TokenSet | None:
     from the gist exactly once, and we're back to local-fast for subsequent
     calls.
     """
+    global _GIST_PULLED_THIS_PROCESS
     cache = _token_cache_path()
+
+    # First call within this process — if gist is configured, force a fresh
+    # pull. Streamlit Cloud's hot-reload preserves /tmp across code changes,
+    # so a stale tokens.json from a prior boot's env-var bootstrap can stick
+    # around forever otherwise. The gist is the source of truth.
+    if not _GIST_PULLED_THIS_PROCESS:
+        _GIST_PULLED_THIS_PROCESS = True  # set FIRST so a failure doesn't loop
+        gist_id, gh_token = _gist_config()
+        if gist_id and gh_token:
+            gist_tokens = _pull_tokens_from_gist()
+            if gist_tokens is not None:
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                cache.write_text(json.dumps(gist_tokens.to_dict(), indent=2))
+                os.chmod(cache, 0o600)
+                return gist_tokens
+            log.warning(
+                "oauth_gist_first_pull_returned_none — falling back to local cache / env"
+            )
+
     if cache.exists():
         try:
             return TokenSet.from_dict(json.loads(cache.read_text()))
         except Exception:
             pass  # corrupt cache — fall through to remote sources
-    # Cache miss: try gist first, then env-var bootstrap.
-    gist_tokens = _pull_tokens_from_gist()
-    if gist_tokens is not None:
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text(json.dumps(gist_tokens.to_dict(), indent=2))
-        os.chmod(cache, 0o600)
-        return gist_tokens
+
+    # Cache miss & no gist (or gist already tried and failed) — try env bootstrap.
     _bootstrap_from_env()
     if not cache.exists():
         return None
