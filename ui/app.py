@@ -255,54 +255,59 @@ def _render_subagent_text(run_dir: Path, sa: dict) -> None:
     st.markdown(text)
 
 
-def render_trace_expander(run_dir: Path) -> None:
-    """Show routing + per-subagent + tool-call trace inside an expander.
+def render_trace_inline(run_dir: Path) -> None:
+    """Render agent activity inline at the top of the assistant message.
 
-    Same data as before, Trading Desk styling on top.
+    No outer expander — routing card, metrics, and per-agent rows + thoughts
+    are visible by default. Each agent's full structured output is tucked
+    behind its OWN per-agent expander to keep the page tidy without hiding
+    the high-signal stuff (Ajatus traces, OK/error status).
+
+    The old "Täydellinen ajoloki" full-narrative renderer is removed — it
+    rendered the same data twice and was the dominant slowdown as chat
+    history grew. The on-disk narrative.md is still written by the pipeline
+    and discoverable from the sidebar's recent-runs path; we just don't
+    inline it.
     """
     routing_path = run_dir / "routing.json"
     meta_path = run_dir / "meta.json"
     lang = st.session_state.get("ui_lang", "fi")
 
-    _trace_label = (
-        "🔍 Agenttien toimintaloki" if lang == "fi" else "🔍 Agent activity log"
-    )
-    with st.expander(_trace_label, expanded=False):
-        if routing_path.exists():
-            r = json.loads(routing_path.read_text(encoding="utf-8"))
-            render_routing_card(r, lang)
+    if routing_path.exists():
+        r = json.loads(routing_path.read_text(encoding="utf-8"))
+        render_routing_card(r, lang)
 
-        # Big metric cards from QUANT's structured output (if present —
-        # silently no-ops when the subagent JSON has no `metrics` block).
-        render_metrics_row(run_dir, lang)
+    # Big metric cards from QUANT's structured output (if present —
+    # silently no-ops when the subagent JSON has no `metrics` block).
+    render_metrics_row(run_dir, lang)
 
-        if meta_path.exists():
-            m = json.loads(meta_path.read_text(encoding="utf-8"))
-            cols = st.columns(4)
-            cols[0].metric("Duration", f"{m.get('duration_seconds', 0):.1f} s")
-            cols[1].metric("Subagents", m.get("subagent_count", 0))
-            cols[2].metric("Errors", m.get("subagent_errors", 0))
-            cols[3].metric("Fallbacks", m.get("fallback_events", 0))
+    if meta_path.exists():
+        m = json.loads(meta_path.read_text(encoding="utf-8"))
+        cols = st.columns(4)
+        cols[0].metric("Duration", f"{m.get('duration_seconds', 0):.1f} s")
+        cols[1].metric("Subagents", m.get("subagent_count", 0))
+        cols[2].metric("Errors", m.get("subagent_errors", 0))
+        cols[3].metric("Fallbacks", m.get("fallback_events", 0))
 
-        for sub_path in sorted(run_dir.glob("subagent-*.json")):
-            sa = json.loads(sub_path.read_text(encoding="utf-8"))
-            render_agent_row(sa, lang)
-            if sa.get("error"):
-                st.error(sa["error"])
-            else:
+    for sub_path in sorted(run_dir.glob("subagent-*.json")):
+        sa = json.loads(sub_path.read_text(encoding="utf-8"))
+        render_agent_row(sa, lang)
+        if sa.get("error"):
+            st.error(sa["error"])
+        else:
+            # Agent's full output (which may include long code blocks / tables)
+            # behind a small per-agent expander. The Ajatus row is already in
+            # the agent's text so it'll show inside; the user clicks to expand
+            # if they want the rest. No outer wrapper means each agent row is
+            # always visible with its glyph + status.
+            domain = (sa.get("domain") or "?").upper()
+            label_open = f"Näytä {domain}-vastaus" if lang == "fi" else f"Show {domain} answer"
+            with st.expander(label_open, expanded=False):
                 render_agent_output(sa.get("text"))
 
-        # Full narrative tucked behind its own collapsed expander — the
-        # primary trace info (routing card + agent rows) is enough for most
-        # reads; the full narrative is for deep-diving into the run.
-        _narr_label = (
-            "📜 Täydellinen ajoloki" if lang == "fi" else "📜 Full run log"
-        )
-        with st.expander(_narr_label, expanded=False):
-            render_full_narrative(run_dir, lang)
-            narrative_path = run_dir / "narrative.md"
-            if narrative_path.exists():
-                st.caption(f"On-disk: `{narrative_path}`")
+
+# Backwards-compat alias so callers that still say render_trace_expander work.
+render_trace_expander = render_trace_inline
 
 
 # ---------------------------------------------------------------------------
@@ -384,9 +389,13 @@ with st.sidebar:
 
 for msg in st.session_state.history:
     with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+        # Agent activity log first (routing + per-agent rows + Ajatus
+        # traces), then the LEAD synthesis answer below it. This makes
+        # the multi-agent reasoning visible at the top of every assistant
+        # turn rather than buried in a collapsed expander.
         if msg["role"] == "assistant" and msg.get("run_dir"):
-            render_trace_expander(Path(msg["run_dir"]))
+            render_trace_inline(Path(msg["run_dir"]))
+        st.markdown(msg["content"])
 
 
 # ---------------------------------------------------------------------------
@@ -471,8 +480,9 @@ if prompt:
             )
             _increment_query_count()
             status.update(label="Valmis", state="complete", expanded=False)
+            # Trace first (routing + per-agent rows + Ajatus), then answer.
+            render_trace_inline(run_dir)
             st.markdown(answer)
-            render_trace_expander(run_dir)
             st.session_state.history.append(
                 {"role": "assistant", "content": answer, "run_dir": str(run_dir)}
             )
