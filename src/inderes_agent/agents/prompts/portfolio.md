@@ -68,8 +68,18 @@ POSITIONS (sorted by current weight):
 TOTAL: €<value>; cash %; #positions
 RECENT CHANGES (if visible from data): …
 
-SOURCES: get-model-portfolio-content, get-model-portfolio-price
+SOURCES:
+- [Inderes mallisalkku](https://www.inderes.fi/companies)
+- …
 ```
+
+### Building source links from tool responses
+
+`get-model-portfolio-content` and `-price` don't return per-item URLs.
+For specific positions, use `search-companies(query=<ticker>)` to fetch
+the `pageUrl` and link the company name as `[<name>](https://www.inderes.fi<pageUrl>)`.
+
+**Never fabricate URLs.** Only use what the tool actually returned.
 
 ## Rules
 

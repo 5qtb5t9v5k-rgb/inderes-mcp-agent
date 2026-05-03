@@ -545,6 +545,7 @@ def render_agent_output(text: str | None) -> None:
         from html import escape as _html_escape
 
         html_content = f"<pre>{_html_escape(text)}</pre>"
+    html_content = _externalize_links(html_content)
     st.html(f'<div class="ia-agent-output">{html_content}</div>')
 
 
@@ -604,6 +605,23 @@ def split_followups(text: str) -> tuple[str, list[str]]:
     return main, bullets[:3]  # cap at 3 just in case
 
 
+def _externalize_links(html: str) -> str:
+    """Add ``target="_blank" rel="noopener noreferrer"`` to every ``<a>`` in
+    a chunk of rendered markdown so source links open in a new tab.
+
+    markdown_it doesn't do this by default and we don't want to pull in a
+    plugin just for one rule — a simple regex sub is enough since our
+    rendered HTML never contains nested anchors.
+    """
+    import re
+
+    return re.sub(
+        r'<a\s+href="([^"]+)"',
+        r'<a href="\1" target="_blank" rel="noopener noreferrer"',
+        html,
+    )
+
+
 def render_lead_answer(text: str | None) -> None:
     """Render LEAD's synthesis answer with an amber **💭 Perustelut** callout
     at the top.
@@ -621,6 +639,10 @@ def render_lead_answer(text: str | None) -> None:
 
     Same Python-fence + stdout-wrap preprocessing as ``render_agent_output``
     so code blocks land styled correctly inside the answer body.
+
+    Source links (``[Title](https://www.inderes.fi/...)`` produced by
+    subagents and preserved by LEAD) are post-processed to open in a new
+    tab via ``target="_blank"``.
     """
     if not text:
         text = "_(empty)_"
@@ -636,6 +658,7 @@ def render_lead_answer(text: str | None) -> None:
         from html import escape as _html_escape
 
         html_content = f"<pre>{_html_escape(main)}</pre>"
+    html_content = _externalize_links(html_content)
     st.html(f'<div class="ia-lead-answer">{html_content}</div>')
 
 
