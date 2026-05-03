@@ -548,6 +548,36 @@ def render_agent_output(text: str | None) -> None:
     st.html(f'<div class="ia-agent-output">{html_content}</div>')
 
 
+def split_followups(text: str) -> tuple[str, list[str]]:
+    """Split a LEAD synthesis into (main_answer, followup_questions).
+
+    LEAD's prompt instructs it to end every synthesis with a
+    ``## 💡 Voisit kysyä myös`` (or ``## 💡 You could also ask``) section
+    containing exactly three bullet questions. We strip that section out of
+    the main answer (so it doesn't render as a heading + bullets) and return
+    the questions as a list for the UI to render as clickable buttons.
+
+    If no such section exists, returns (text, []) — graceful fallback.
+    """
+    import re
+
+    # Header is "## 💡 Voisit kysyä myös" or "## Voisit kysyä myös" or
+    # the English equivalent. Match either with optional emoji.
+    pat = re.compile(
+        r"^##\s*(?:💡\s*)?(?:Voisit\s+kysy[äa]\s+my[öo]s|You\s+could\s+also\s+ask)\s*$",
+        re.MULTILINE | re.IGNORECASE,
+    )
+    m = pat.search(text)
+    if not m:
+        return text, []
+    main = text[: m.start()].rstrip()
+    after = text[m.end():]
+    # Pull bullet lines starting with `-` or `*`. Stop at a blank line
+    # followed by another heading (rare — the section should be last).
+    bullets = re.findall(r"^[-*]\s+(.+?)\s*$", after, flags=re.MULTILINE)
+    return main, bullets[:3]  # cap at 3 just in case
+
+
 def render_lead_answer(text: str | None) -> None:
     """Render LEAD's synthesis answer with an amber **💭 Perustelut** callout
     at the top.
@@ -559,23 +589,167 @@ def render_lead_answer(text: str | None) -> None:
     subagents. This preserves visual hierarchy: ◆ LEAD = amber accent,
     subagents = their persona colors.
 
+    The trailing ``## 💡 Voisit kysyä myös`` section is **removed** from the
+    rendered HTML — those followup questions are surfaced separately by
+    ``render_followup_chips`` so the UI can make them clickable buttons.
+
     Same Python-fence + stdout-wrap preprocessing as ``render_agent_output``
     so code blocks land styled correctly inside the answer body.
     """
     if not text:
         text = "_(empty)_"
-    text = _ensure_python_fenced(text)
-    text = _wrap_python_output(text)
+    main, _followups = split_followups(text)
+    main = _ensure_python_fenced(main)
+    main = _wrap_python_output(main)
     try:
         from markdown_it import MarkdownIt
 
         md = MarkdownIt("commonmark").enable(["table", "strikethrough"])
-        html_content = md.render(text)
+        html_content = md.render(main)
     except Exception:
         from html import escape as _html_escape
 
-        html_content = f"<pre>{_html_escape(text)}</pre>"
+        html_content = f"<pre>{_html_escape(main)}</pre>"
     st.html(f'<div class="ia-lead-answer">{html_content}</div>')
+
+
+def render_followup_chips(text: str | None, run_dir_name: str = "live") -> None:
+    """Render LEAD's followup questions as clickable buttons.
+
+    Each click writes the question into ``st.session_state.pending_query``,
+    which the main script picks up next rerun and treats as if the user had
+    typed and submitted it. Buttons need unique keys per chat-message; we
+    seed them with ``run_dir_name`` so old assistant messages can still
+    surface their followups without colliding with newer ones.
+    """
+    if not text:
+        return
+    _, followups = split_followups(text)
+    if not followups:
+        return
+
+    label = "💡 Voisit kysyä myös"
+    st.markdown(
+        f'<div class="ia-followup-label">{label}</div>',
+        unsafe_allow_html=True,
+    )
+    for i, question in enumerate(followups):
+        key = f"sugg_{run_dir_name}_{i}"
+        if st.button(question, key=key, use_container_width=True):
+            st.session_state["pending_query"] = question
+            st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Inderes recommendation badge — extracted from QUANT's structured output
+# ---------------------------------------------------------------------------
+
+# Maps recommendation labels to a persona color from theme.css.
+_RECOMMENDATION_COLORS = {
+    # bullish
+    "BUY":         "var(--ia-green)",
+    "OSTA":        "var(--ia-green)",
+    "ACCUMULATE":  "var(--ia-green)",
+    "LISÄÄ":       "var(--ia-green)",
+    "OVERWEIGHT":  "var(--ia-green)",
+    # neutral
+    "HOLD":        "var(--ia-amber)",
+    "PIDÄ":        "var(--ia-amber)",
+    "NEUTRAL":     "var(--ia-amber)",
+    # bearish
+    "REDUCE":      "var(--ia-red)",
+    "VÄHENNÄ":     "var(--ia-red)",
+    "SELL":        "var(--ia-red)",
+    "MYY":         "var(--ia-red)",
+    "UNDERWEIGHT": "var(--ia-red)",
+}
+
+
+def extract_inderes_view(quant_text: str | None) -> dict | None:
+    """Pull recommendation / target / risk / EPS out of QUANT's structured text.
+
+    QUANT's prompt mandates an ``INDERES VIEW:`` block with a few fixed
+    fields. We don't enforce a strict YAML parser — agents wobble — but
+    field-by-field regex pulls out what's there and leaves the rest as None.
+    Returns None if no recommendation field could be parsed (no badge to
+    render).
+    """
+    import re
+
+    if not quant_text:
+        return None
+    rec_match = re.search(
+        r"recommendation:\s*([A-Za-zÄäÖö]+)",
+        quant_text,
+        flags=re.IGNORECASE,
+    )
+    tgt_match = re.search(
+        r"target_price:\s*€?\s*([\d,.]+)\s*€?",
+        quant_text,
+        flags=re.IGNORECASE,
+    )
+    risk_match = re.search(
+        r"risk_score:\s*([\d/.]+)",
+        quant_text,
+        flags=re.IGNORECASE,
+    )
+    eps_match = re.search(
+        r"next_year_eps:\s*€?\s*([\d,.]+)",
+        quant_text,
+        flags=re.IGNORECASE,
+    )
+    if not rec_match:
+        return None
+    return {
+        "recommendation": rec_match.group(1).upper(),
+        "target_price": tgt_match.group(1) if tgt_match else None,
+        "risk_score": risk_match.group(1) if risk_match else None,
+        "next_year_eps": eps_match.group(1) if eps_match else None,
+    }
+
+
+def render_recommendation_badge(run_dir: Path, lang: str = "fi") -> None:
+    """Render Inderes' recommendation badge above the LEAD synthesis.
+
+    Reads QUANT's subagent JSON, extracts the INDERES VIEW block, and renders
+    a single-line badge with persona colors driven by the recommendation
+    (BUY → green, HOLD → amber, REDUCE/SELL → red). No-ops if QUANT didn't
+    run for this query or didn't surface a recommendation (e.g. comparison
+    queries with no single target company).
+    """
+    quant_files = list(run_dir.glob("subagent-*-quant.json"))
+    if not quant_files:
+        return
+    try:
+        sa = json.loads(quant_files[0].read_text(encoding="utf-8"))
+    except Exception:
+        return
+    view = extract_inderes_view(sa.get("text"))
+    if not view:
+        return
+
+    color = _RECOMMENDATION_COLORS.get(view["recommendation"], "var(--ia-text)")
+    label = "INDERESIN NÄKEMYS" if lang == "fi" else "INDERES VIEW"
+
+    parts = [
+        f'<span class="ia-rec-mark" style="color:{color}">{view["recommendation"]}</span>'
+    ]
+    if view.get("target_price"):
+        parts.append(f'<span class="ia-rec-tgt">€{view["target_price"]}</span>')
+    if view.get("risk_score"):
+        risk_lbl = "Riski" if lang == "fi" else "Risk"
+        parts.append(f'<span class="ia-rec-risk">{risk_lbl} {view["risk_score"]}</span>')
+    if view.get("next_year_eps"):
+        eps_lbl = "Ensi vuoden EPS" if lang == "fi" else "Next-year EPS"
+        parts.append(f'<span class="ia-rec-eps">{eps_lbl} €{view["next_year_eps"]}</span>')
+
+    html = (
+        f'<div class="ia-rec">'
+        f'<div class="ia-rec-label">📌 {label}</div>'
+        f'<div class="ia-rec-row">{" · ".join(parts)}</div>'
+        f'</div>'
+    )
+    st.html(html)
 
 
 def render_full_narrative(run_dir: Path, lang: str = "fi") -> None:

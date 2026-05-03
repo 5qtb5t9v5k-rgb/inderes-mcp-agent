@@ -328,6 +328,60 @@ input:focus, textarea:focus { border-color: var(--ia-amber) !important; }
   line-height: 1.7;
 }
 
+/* INDERES RECOMMENDATION BADGE — sits above LEAD synthesis when QUANT
+   surfaced a recommendation. Color (green/amber/red) tracks the actual
+   call so the user sees the headline at a glance. */
+.ia-rec {
+  background: var(--ia-panel);
+  border: 1px solid var(--ia-border);
+  border-left: 2px solid var(--ia-amber);
+  padding: 10px 16px;
+  margin: 0 0 14px 0;
+  font-family: var(--ia-mono);
+}
+.ia-rec .ia-rec-label {
+  color: var(--ia-faint);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.ia-rec .ia-rec-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 14px;
+  font-size: 14px;
+}
+.ia-rec .ia-rec-mark {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+.ia-rec .ia-rec-tgt {
+  color: var(--ia-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+.ia-rec .ia-rec-risk,
+.ia-rec .ia-rec-eps {
+  color: var(--ia-dim);
+  font-size: 11px;
+}
+
+/* FOLLOWUP CHIPS — clickable suggestion buttons under each LEAD answer.
+   Streamlit's st.button uses our amber-themed primary color from
+   .streamlit/config.toml, we just style the label row above the buttons. */
+.ia-followup-label {
+  color: var(--ia-amber);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  margin: 18px 0 8px 0;
+  padding-bottom: 4px;
+  border-bottom: 1px dotted var(--ia-border);
+}
+
 /* HERO — top intro panel: short description + agent roster + GitHub CTA.
    Replaces the old big-orange disclaimer. The disclaimer line lives at the
    bottom of this panel as fine print. */

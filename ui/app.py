@@ -104,6 +104,8 @@ from components import (  # noqa: E402
     render_sidebar_disclaimer,
     render_github_link,
     render_lead_answer,
+    render_followup_chips,
+    render_recommendation_badge,
     CustomStatus,
     PERSONAS,
     DOMAIN_VERBS_FI,
@@ -401,9 +403,21 @@ for msg in st.session_state.history:
         # **💭 Perustelut:** callout gets its amber styling. User messages
         # are plain markdown.
         if msg["role"] == "assistant":
+            run_dir = Path(msg["run_dir"]) if msg.get("run_dir") else None
+            # Inderes recommendation badge — only renders if QUANT surfaced
+            # a recommendation in this run; silently no-ops otherwise.
+            if run_dir is not None:
+                render_recommendation_badge(run_dir)
             render_lead_answer(msg["content"])
-            if msg.get("run_dir"):
-                render_trace_expander(Path(msg["run_dir"]))
+            # Followup question chips — extracted from the LEAD synthesis
+            # itself; clicking one writes to st.session_state.pending_query
+            # and triggers a rerun that submits it as a new query.
+            render_followup_chips(
+                msg["content"],
+                run_dir_name=(run_dir.name if run_dir else f"hist{id(msg)}"),
+            )
+            if run_dir is not None:
+                render_trace_expander(run_dir)
         else:
             st.markdown(msg["content"])
 
@@ -513,6 +527,12 @@ async def run_pipeline(query: str, state: ConversationState, status) -> tuple[st
 
 prompt = st.chat_input("Kysy jotain Pohjoismaisista osakkeista…")
 
+# A followup-chip click sets st.session_state.pending_query and reruns. If
+# the user didn't type anything THIS rerun, pick up the queued query and
+# treat it as if they typed it.
+if not prompt and st.session_state.get("pending_query"):
+    prompt = st.session_state.pop("pending_query")
+
 if prompt:
     # Enforce the daily cap BEFORE we charge a query against the cap. The
     # increment happens after a successful run.
@@ -534,9 +554,12 @@ if prompt:
             )
             _increment_query_count()
             status.update(label="Valmis", state="complete", expanded=False)
-            # Order: LEAD synthesis first (the answer is the headline),
-            # then the agent activity log behind a collapsed expander.
+            # Order: Inderes recommendation badge (if QUANT surfaced one),
+            # then LEAD synthesis, then followup-chip buttons, then the
+            # agent activity log behind a collapsed expander.
+            render_recommendation_badge(run_dir)
             render_lead_answer(answer)
+            render_followup_chips(answer, run_dir_name=run_dir.name)
             render_trace_expander(run_dir)
             st.session_state.history.append(
                 {"role": "assistant", "content": answer, "run_dir": str(run_dir)}
