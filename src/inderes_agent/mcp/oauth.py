@@ -96,15 +96,114 @@ class TokenSet:
         return cls(**d)
 
 
+# ---------------------------------------------------------------------------
+# Optional GitHub Gist persistence — survives container restarts.
+#
+# Streamlit Cloud's container is ephemeral, so refresh-token rotation eats
+# itself: the new refresh_token is written to the in-container tokens.json,
+# but the next container restart loses that file and bootstraps the OLD
+# token from the env-var secret, which Inderes' Keycloak has already
+# invalidated. Instead, mirror the cache to a private GitHub gist so it
+# persists across restarts.
+#
+# Configure two env vars (typically via Streamlit secrets):
+#   INDERES_TOKENS_GIST_ID   - the gist's hex ID (from its URL)
+#   INDERES_TOKENS_GH_TOKEN  - a GitHub PAT with `gist` scope (only)
+#
+# Both must be set for gist mode to engage. If either is missing, the agent
+# falls back to local-file-only behaviour (fine for local dev).
+# ---------------------------------------------------------------------------
+
+_GIST_FILENAME = "tokens.json"
+
+
+def _gist_config() -> tuple[str | None, str | None]:
+    return (
+        os.environ.get("INDERES_TOKENS_GIST_ID"),
+        os.environ.get("INDERES_TOKENS_GH_TOKEN"),
+    )
+
+
+def _push_tokens_to_gist(tokens: TokenSet) -> None:
+    gist_id, gh_token = _gist_config()
+    if not (gist_id and gh_token):
+        return
+    try:
+        import httpx
+
+        body = {
+            "files": {
+                _GIST_FILENAME: {
+                    "content": json.dumps(tokens.to_dict(), indent=2),
+                }
+            }
+        }
+        r = httpx.patch(
+            f"https://api.github.com/gists/{gist_id}",
+            json=body,
+            headers={
+                "Authorization": f"token {gh_token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=10,
+        )
+        r.raise_for_status()
+        log.info("oauth_tokens_pushed_to_gist gist=%s", gist_id)
+    except Exception as exc:
+        log.warning("oauth_gist_push_failed err=%s", exc)
+
+
+def _pull_tokens_from_gist() -> TokenSet | None:
+    gist_id, gh_token = _gist_config()
+    if not (gist_id and gh_token):
+        return None
+    try:
+        import httpx
+
+        r = httpx.get(
+            f"https://api.github.com/gists/{gist_id}",
+            headers={
+                "Authorization": f"token {gh_token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=10,
+        )
+        r.raise_for_status()
+        files = r.json().get("files", {})
+        entry = files.get(_GIST_FILENAME) or {}
+        content = entry.get("content")
+        if not content:
+            return None
+        log.info("oauth_tokens_pulled_from_gist gist=%s", gist_id)
+        return TokenSet.from_dict(json.loads(content))
+    except Exception as exc:
+        log.warning("oauth_gist_pull_failed err=%s", exc)
+        return None
+
+
 def _save_tokens(tokens: TokenSet) -> None:
     cache = _token_cache_path()
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(json.dumps(tokens.to_dict(), indent=2))
     os.chmod(cache, 0o600)
+    # Mirror to gist so the next container restart sees the rotated refresh
+    # token instead of the (now-invalid) one from the env-var bootstrap.
+    _push_tokens_to_gist(tokens)
 
 
 def _load_tokens() -> TokenSet | None:
     cache = _token_cache_path()
+    # Gist takes precedence — when the container restarts, the local cache
+    # doesn't exist yet, but the gist holds the freshest tokens. If gist mode
+    # is off (no env vars set) this is a no-op.
+    gist_tokens = _pull_tokens_from_gist()
+    if gist_tokens is not None:
+        # Materialise on disk too so existing code that reads the cache
+        # (e.g. the bearer-auth wrapper in inderes_client.py) keeps working.
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(gist_tokens.to_dict(), indent=2))
+        os.chmod(cache, 0o600)
+        return gist_tokens
     if not cache.exists():
         _bootstrap_from_env()
         if not cache.exists():

@@ -139,11 +139,55 @@ If you see `OAuth flow requires opening a browser…`, your refresh token has
 expired or the secret is malformed. Repeat §2 (capture tokens locally) and
 update the `INDERES_OAUTH_TOKENS_JSON` secret.
 
+## 6.5. Optional: durable token storage via GitHub Gist
+
+Without this, you'll hit the operational gotcha at the bottom of this doc:
+Streamlit Cloud restarts the container periodically, the in-container
+`tokens.json` is wiped, the app bootstraps the original (now-rotated)
+refresh token from the secret, Inderes' Keycloak rejects it as
+`invalid_grant`, and the app dies until you paste fresh tokens.
+
+The fix is to mirror `tokens.json` to a private GitHub gist on every
+refresh. The container reads from the gist on startup (always gets the
+freshest tokens) and writes back on every refresh (preserves the new
+rotated token across restarts).
+
+### Setup (one-time, ~3 minutes)
+
+1. **Create a private gist** at https://gist.github.com/ with one file
+   named exactly `tokens.json`. Paste the same JSON you put in
+   `INDERES_OAUTH_TOKENS_JSON` as the initial content. Click "Create
+   secret gist". Copy the gist ID from the URL — it's the hex string
+   after your username, e.g. `https://gist.github.com/you/abc123def456…`
+   → ID is `abc123def456…`.
+
+2. **Create a fine-grained PAT** at https://github.com/settings/tokens?type=beta
+   - Repository access: doesn't matter (gists aren't repos)
+   - Account permissions → **Gists: Read and write**
+   - Expiration: 90+ days (you'll need to rotate when this expires too,
+     but ~3× less often than refresh tokens)
+   - Click Generate, copy the token starting with `github_pat_`.
+
+3. **Add two more secrets** to your Streamlit Cloud app
+   (`Settings → Secrets`):
+
+   ```toml
+   INDERES_TOKENS_GIST_ID = "abc123def456..."
+   INDERES_TOKENS_GH_TOKEN = "github_pat_..."
+   ```
+
+4. **Reboot the app**. It'll read from the gist instead of the static
+   env-var, and start writing back to the gist on every token refresh.
+
+That's it. The `INDERES_OAUTH_TOKENS_JSON` secret stays as a fallback
+for the first cold start before gist content is verified.
+
 ## 7. Day-to-day operations
 
 | Frequency | Task |
 |---|---|
-| **Once a month** | Capture fresh tokens locally (refresh tokens last ~30 days), update `INDERES_OAUTH_TOKENS_JSON` secret. The app will auto-restart on secret change. |
+| **Never** (with gist setup) | Token refresh happens automatically and persists across container restarts. |
+| **Once a month** (without gist setup) | Capture fresh tokens locally (refresh tokens last ~30 days), update `INDERES_OAUTH_TOKENS_JSON` secret. The app will auto-restart on secret change. |
 | **As needed** | Rotate `APP_PASSWORD` if it's been shared too widely. |
 | **Weekly** | Glance at the Google AI Studio dashboard for the past week's spend, sanity-check it. |
 | **As needed** | Check the recent runs in the sidebar — if you see queries you didn't expect, the password may have leaked. |
@@ -163,7 +207,9 @@ rotate it on the 1st of each month. Easy to enforce, easy to reset.
   (resource limits, redeploys). On restart, the in-container token cache
   resets to whatever's in `INDERES_OAUTH_TOKENS_JSON`. If a refresh happened
   and the new token wasn't yet saved to a persistent store, the next run
-  will refresh again from the original.
+  will refresh again from the original — and Keycloak will reject it as
+  `invalid_grant` because rotated refresh tokens are single-use. Use the
+  gist setup in §6.5 to make this a non-issue.
 - **Daily query cap resets** when the container restarts (counter is in
   `/tmp`). Worst case, an attacker triggers restarts to reset the cap. In
   practice, Streamlit Cloud doesn't expose a public restart trigger, so this
