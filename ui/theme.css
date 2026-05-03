@@ -505,11 +505,19 @@ input:focus, textarea:focus { border-color: var(--ia-amber) !important; }
    gracefully on browsers without :has() (Safari < 15.4). */
 .ia-agent-output > p:first-child:has(> strong:first-child) {
   border-left: 2px solid var(--ia-violet);
-  padding: 6px 10px;
+  padding: 8px 12px;
   background: rgba(167, 139, 250, 0.04);
   font-style: italic;
   color: var(--ia-dim);
   margin-bottom: 12px;
+  /* Min-height keeps the Ajatus block visually consistent across agents
+     even when the content varies a bit (one short sentence vs. one long
+     one). The prompts cap at ~140 chars (single sentence) so this rarely
+     forces extra space — it's a visual floor for the few cases where the
+     line is unusually short. */
+  min-height: 44px;
+  display: flex;
+  align-items: center;
 }
 .ia-agent-output > p:first-child:has(> strong:first-child) strong {
   color: var(--ia-violet);
@@ -530,11 +538,17 @@ input:focus, textarea:focus { border-color: var(--ia-amber) !important; }
 .ia-lead-answer strong { color: var(--ia-amber); font-weight: 600; }
 .ia-lead-answer > p:first-child:has(> strong:first-child) {
   border-left: 2px solid var(--ia-amber);
-  padding: 8px 12px;
+  padding: 10px 14px;
   background: rgba(255, 210, 74, 0.04);
   font-style: italic;
   margin-bottom: 16px;
   color: var(--ia-text);
+  /* Same visual-floor trick as agent Ajatus — prompts cap at ~160 chars
+     so this rarely forces extra space, but it keeps the callout looking
+     consistent in size across queries. */
+  min-height: 52px;
+  display: flex;
+  align-items: center;
 }
 .ia-lead-answer > p:first-child:has(> strong:first-child) strong {
   color: var(--ia-amber);
