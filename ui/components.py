@@ -621,6 +621,22 @@ def render_full_narrative(run_dir: Path, lang: str = "fi") -> None:
 # Statusbar — pinned at the bottom of the main column
 # ---------------------------------------------------------------------------
 
+# Per-domain action-verb phrases used in the live status box. Key matches
+# the lowercase domain enum value (quant / research / sentiment / portfolio).
+DOMAIN_VERBS_FI: dict[str, str] = {
+    "quant":     "etsii tunnuslukuja ja laskee Pythonissa",
+    "research":  "kahlaa Inderesin analyysiarkistoa",
+    "sentiment": "tarkistaa sisäpiirin kaupat ja foorumin",
+    "portfolio": "tarkastaa Inderesin mallisalkun",
+}
+DOMAIN_VERBS_EN: dict[str, str] = {
+    "quant":     "fetching fundamentals + Python math",
+    "research":  "trawling Inderes' research archive",
+    "sentiment": "checking insider trades + forum buzz",
+    "portfolio": "inspecting Inderes' model portfolio",
+}
+
+
 class CustomStatus:
     """Drop-in replacement for ``st.status`` that doesn't use Material Symbols.
 
@@ -634,19 +650,24 @@ class CustomStatus:
 
         status = CustomStatus("Käsittelen kysymystäsi…", expanded=True)
         status.write("⚙️  Reitittäjä…")
+        status.write('<span style="color:#FFD24A">◆ LEAD</span>', html=True)
         status.update(label="Valmis", state="complete", expanded=False)
     """
 
     def __init__(self, label: str, expanded: bool = True) -> None:
         self._placeholder = st.empty()
         self._label = label
-        self._lines: list[str] = []
+        # Each entry is (kind, content). kind="text" gets HTML-escaped on
+        # render; kind="html" is trusted raw HTML (used for persona-styled
+        # status lines that need inline color via <span style>).
+        self._lines: list[tuple[str, str]] = []
         self._state = "running"
         self._expanded = expanded
         self._render()
 
-    def write(self, text: str) -> None:
-        self._lines.append(str(text))
+    def write(self, text: str, html: bool = False) -> None:
+        kind = "html" if html else "text"
+        self._lines.append((kind, str(text)))
         self._render()
 
     def update(
@@ -671,7 +692,10 @@ class CustomStatus:
 
     def _render(self) -> None:
         details_attr = " open" if self._expanded else ""
-        body_html = "<br>".join(_esc(line) for line in self._lines)
+        rendered_lines = []
+        for kind, content in self._lines:
+            rendered_lines.append(content if kind == "html" else _esc(content))
+        body_html = "<br>".join(rendered_lines)
         html = (
             f'<details class="ia-cs ia-cs-{_esc(self._state)}"{details_attr}>'
             f'<summary><span class="ia-cs-dot"></span>'

@@ -92,6 +92,8 @@ from components import (  # noqa: E402
     render_github_link,
     render_lead_answer,
     CustomStatus,
+    PERSONAS,
+    DOMAIN_VERBS_FI,
 )
 
 
@@ -402,26 +404,70 @@ async def run_pipeline(query: str, state: ConversationState, status) -> tuple[st
     run_dir = new_run_dir()
     handler = attach_console_log_handler(run_dir)
     t0 = time.time()
+
+    def _persona_chip(domain_value: str) -> str:
+        """Render `▲ QUANT` (or whichever) with its persona color."""
+        code = domain_value.upper()
+        p = PERSONAS.get(code, {"glyph": "•", "color": "#888"})
+        return (
+            f'<span style="color:{p["color"]}; font-weight:600">'
+            f'{p["glyph"]} {code}</span>'
+        )
+
     try:
-        status.write("⚙️  Reitittäjä päättää mitä subagentteja käytetään…")
+        # Phase 1: routing
+        status.write("🧭 Reititän kysymyksen oikeille agenteille…")
         ctx = ", ".join(state.last_companies) if state.last_companies else ""
         ctx_hint = f"previous turn discussed: {ctx}" if ctx else ""
         classification = await classify_query(query, conversation_context=ctx_hint)
         if not classification.companies and state.last_companies:
             classification.companies = state.last_companies
+
+        domains_html = " + ".join(_persona_chip(d.value) for d in classification.domains)
+        companies_html = (
+            f'<span style="color:var(--ia-amber)">{", ".join(classification.companies)}</span>'
+            if classification.companies else "—"
+        )
         status.write(
-            f"✓ Reititys: **{' + '.join(d.value for d in classification.domains)}**"
-            + (f" · {', '.join(classification.companies)}" if classification.companies else "")
+            f"✓ Päädyin: {domains_html} — kohde: {companies_html}",
+            html=True,
         )
 
-        status.write("⚙️  Subagentit ajetaan rinnakkain…")
-        workflow_result = await run_workflow(query, classification, run_dir=run_dir)
-        for sr in workflow_result.subagent_results:
-            mark = "❌ ERROR" if sr.error else "✓"
-            company = f" — {sr.company}" if sr.company else ""
-            status.write(f"  {mark} {sr.domain.value}{company} ({sr.model_used})")
+        # Phase 2: dispatch — write a "käynnistyy → verb" line per agent BEFORE
+        # awaiting so the user sees who's working during the (often 10–30s)
+        # parallel run.
+        status.write("⚙️  Subagentit käynnistyvät rinnakkain…")
+        for d in classification.domains:
+            verb = DOMAIN_VERBS_FI.get(d.value, "tutkii")
+            status.write(
+                f"  {_persona_chip(d.value)} käynnistyy → {verb}",
+                html=True,
+            )
 
-        status.write("⚙️  Lead syntesoi vastauksen…")
+        workflow_result = await run_workflow(query, classification, run_dir=run_dir)
+
+        # Phase 3: per-agent results
+        for sr in workflow_result.subagent_results:
+            chip = _persona_chip(sr.domain.value)
+            company = f" · {sr.company}" if sr.company else ""
+            if sr.error:
+                status.write(
+                    f"  {chip}{company} ❌ virhe: {sr.error[:60]}",
+                    html=True,
+                )
+            else:
+                status.write(
+                    f"  {chip}{company} ✓ valmis "
+                    f'<span style="color:var(--ia-faint); font-size:10px">'
+                    f'({sr.model_used})</span>',
+                    html=True,
+                )
+
+        # Phase 4: synthesis
+        status.write(
+            f"{_persona_chip('lead')} yhdistää tulokset synteesiksi…",
+            html=True,
+        )
         answer, lead_model = await synthesize(query, workflow_result)
 
         write_run(
