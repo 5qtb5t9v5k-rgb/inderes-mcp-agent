@@ -192,22 +192,41 @@ def _save_tokens(tokens: TokenSet) -> None:
 
 
 def _load_tokens() -> TokenSet | None:
+    """Load tokens with the cheapest source first.
+
+    Order of operations:
+      1. Local cache (fast — no network) if it exists.
+      2. Gist (one HTTPS round-trip, only when local cache is missing — i.e.
+         cold container start).
+      3. Env-var bootstrap (fallback if gist is unavailable / not configured).
+
+    Pulling from the gist on EVERY auth_flow call would add ~200ms per MCP
+    request (and the user's ``auth_flow`` calls this on every request to
+    refresh the bearer header). Worst case those latencies stack and Inderes
+    MCP's read deadline trips before the response arrives.
+
+    Refreshes still write to both local cache AND gist (see _save_tokens),
+    so the local cache stays in sync as long as this process is running. On
+    container restart the cache is wiped, the next _load_tokens does pull
+    from the gist exactly once, and we're back to local-fast for subsequent
+    calls.
+    """
     cache = _token_cache_path()
-    # Gist takes precedence — when the container restarts, the local cache
-    # doesn't exist yet, but the gist holds the freshest tokens. If gist mode
-    # is off (no env vars set) this is a no-op.
+    if cache.exists():
+        try:
+            return TokenSet.from_dict(json.loads(cache.read_text()))
+        except Exception:
+            pass  # corrupt cache — fall through to remote sources
+    # Cache miss: try gist first, then env-var bootstrap.
     gist_tokens = _pull_tokens_from_gist()
     if gist_tokens is not None:
-        # Materialise on disk too so existing code that reads the cache
-        # (e.g. the bearer-auth wrapper in inderes_client.py) keeps working.
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(json.dumps(gist_tokens.to_dict(), indent=2))
         os.chmod(cache, 0o600)
         return gist_tokens
+    _bootstrap_from_env()
     if not cache.exists():
-        _bootstrap_from_env()
-        if not cache.exists():
-            return None
+        return None
     try:
         return TokenSet.from_dict(json.loads(cache.read_text()))
     except Exception:
