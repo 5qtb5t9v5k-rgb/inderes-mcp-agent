@@ -557,14 +557,23 @@ def split_followups(text: str) -> tuple[str, list[str]]:
     the main answer (so it doesn't render as a heading + bullets) and return
     the questions as a list for the UI to render as clickable buttons.
 
+    Tolerant to LEAD wobble:
+      * 1-3 ``#`` characters in the heading (h1/h2/h3 all accepted)
+      * Optional ``💡`` emoji
+      * Optional trailing colon
+      * Bullets starting with ``-``, ``*``, or numbered ``1.`` ``2)`` etc.
+      * Filters out placeholder bullets (``[...]``, ``<...>``) just in case
+        LEAD copies the prompt's example text literally.
+
     If no such section exists, returns (text, []) — graceful fallback.
     """
     import re
 
-    # Header is "## 💡 Voisit kysyä myös" or "## Voisit kysyä myös" or
-    # the English equivalent. Match either with optional emoji.
+    # Header: 1-3 hashes, optional emoji, FI or EN phrase, optional colon.
     pat = re.compile(
-        r"^##\s*(?:💡\s*)?(?:Voisit\s+kysy[äa]\s+my[öo]s|You\s+could\s+also\s+ask)\s*$",
+        r"^#{1,3}\s*(?:[💡✨🤔]\s*)?"
+        r"(?:Voisit\s+kysy[äa]\s+my[öo]s|You\s+could\s+also\s+ask)"
+        r"\s*:?\s*$",
         re.MULTILINE | re.IGNORECASE,
     )
     m = pat.search(text)
@@ -572,9 +581,26 @@ def split_followups(text: str) -> tuple[str, list[str]]:
         return text, []
     main = text[: m.start()].rstrip()
     after = text[m.end():]
-    # Pull bullet lines starting with `-` or `*`. Stop at a blank line
-    # followed by another heading (rare — the section should be last).
-    bullets = re.findall(r"^[-*]\s+(.+?)\s*$", after, flags=re.MULTILINE)
+
+    # Match bullets: leading "- ", "* ", "• ", "1. ", "1) ", etc.
+    bullet_pat = re.compile(
+        r"^\s*(?:[-*•]|\d+[.)])\s+(.+?)\s*$",
+        flags=re.MULTILINE,
+    )
+    raw_bullets = bullet_pat.findall(after)
+    # Strip markdown emphasis around the question and filter out placeholder
+    # text (anything wrapped entirely in [] or <> braces or starting with
+    # "Tähän" / "Question" — LEAD echoing the prompt's example).
+    bullets = []
+    for b in raw_bullets:
+        cleaned = b.strip().strip("*_`")
+        if not cleaned:
+            continue
+        if cleaned.startswith(("[", "<")) and cleaned.endswith(("]", ">")):
+            continue
+        if re.match(r"(Tähän|Question \d+|<\.\.\.>)", cleaned, re.IGNORECASE):
+            continue
+        bullets.append(cleaned)
     return main, bullets[:3]  # cap at 3 just in case
 
 
@@ -722,14 +748,25 @@ def extract_inderes_view(quant_text: str | None) -> dict | None:
 def render_recommendation_badge(run_dir: Path, lang: str = "fi") -> None:
     """Render Inderes' recommendation badge above the LEAD synthesis.
 
-    Reads QUANT's subagent JSON, extracts the INDERES VIEW block, and renders
-    a single-line badge with persona colors driven by the recommendation
-    (BUY → green, HOLD → amber, REDUCE/SELL → red). No-ops if QUANT didn't
-    run for this query or didn't surface a recommendation (e.g. comparison
-    queries with no single target company).
+    Reads QUANT's subagent JSON, extracts the INDERES VIEW block, and
+    renders a single-line badge with persona colors driven by the
+    recommendation (BUY → green, HOLD → amber, REDUCE/SELL → red).
+
+    Only renders when there is **exactly one** QUANT subagent file for the
+    run — i.e. a single-company query. For comparisons (fan-out per
+    company → multiple QUANT files) the badge would have no clear
+    referent and the synthesis already shows both companies' calls in a
+    table; rendering "the first company's badge" was confusing in user
+    testing, so we skip the badge entirely in that case.
+
+    No-ops if QUANT didn't run for this query or didn't surface a
+    recommendation in its INDERES VIEW block.
     """
     quant_files = list(run_dir.glob("subagent-*-quant.json"))
-    if not quant_files:
+    if len(quant_files) != 1:
+        # 0 = QUANT not invoked; >1 = comparison query, info already in
+        # the synthesis table. Either way no clean single-company badge
+        # to show.
         return
     try:
         sa = json.loads(quant_files[0].read_text(encoding="utf-8"))
@@ -739,8 +776,11 @@ def render_recommendation_badge(run_dir: Path, lang: str = "fi") -> None:
     if not view:
         return
 
+    company = sa.get("company") or ""
     color = _RECOMMENDATION_COLORS.get(view["recommendation"], "var(--ia-text)")
     label = "INDERESIN NÄKEMYS" if lang == "fi" else "INDERES VIEW"
+    if company:
+        label = f"{label} · {company.upper()}"
 
     parts = [
         f'<span class="ia-rec-mark" style="color:{color}">{view["recommendation"]}</span>'
