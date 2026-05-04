@@ -534,6 +534,25 @@ def get_inderes_access_token(
             _save_tokens(refreshed)
             return refreshed.access_token
 
+        # Refresh failed. Most common cause in cloud deployments: the cron
+        # worker rotated the refresh_token in the gist between our last pull
+        # and now, and our in-memory cache is stale. Force-pull the gist
+        # once and retry the refresh with the latest token before giving up.
+        gist_id, gh_token = _gist_config()
+        if gist_id and gh_token:
+            log.info("oauth_refresh_failed_retrying_with_gist_pull")
+            gist_tokens = _pull_tokens_from_gist()
+            if gist_tokens and gist_tokens.refresh_token != cached.refresh_token:
+                # Gist has a different RT than what we just tried — promising.
+                if gist_tokens.is_fresh:
+                    _save_tokens(gist_tokens)
+                    return gist_tokens.access_token
+                refreshed = _refresh_tokens(gist_tokens)
+                if refreshed:
+                    _save_tokens(refreshed)
+                    log.info("oauth_recovered_from_gist_after_rotation_race")
+                    return refreshed.access_token
+
     if _is_headless():
         raise HeadlessAuthError(
             "OAuth flow requires opening a browser, but this environment is "

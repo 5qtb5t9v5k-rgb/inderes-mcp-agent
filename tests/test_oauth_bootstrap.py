@@ -108,3 +108,85 @@ def test_load_tokens_triggers_env_bootstrap(isolated_cache, monkeypatch):
     assert loaded is not None
     assert loaded.access_token == "fake-access"
     assert oauth._token_cache_path().exists()
+
+
+def test_refresh_failure_recovers_via_gist_when_rotation_race(
+    isolated_cache, monkeypatch
+):
+    """Cron rotates tokens between cloud's pulls → cloud's refresh fails →
+    cloud should fall back to a fresh gist pull and use those tokens.
+
+    This is the exact failure mode observed in production: cron runs every
+    5 min, cloud's in-memory refresh_token gets invalidated by cron's
+    rotation, next refresh attempt sees "Token is not active". Without
+    this recovery, cloud raises HeadlessAuthError and dies.
+    """
+    # Stale cache: this is what cloud has in memory after its first pull.
+    stale = _fake_tokens_dict("stale-access")
+    stale["refresh_token"] = "stale-rt"
+    stale["expires_at"] = 1.0  # already expired → triggers refresh
+    cache_path = oauth._token_cache_path()
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(stale))
+
+    # Gist mode configured so the recovery path can engage.
+    monkeypatch.setenv("INDERES_TOKENS_GIST_ID", "fake-gist-id")
+    monkeypatch.setenv("INDERES_TOKENS_GH_TOKEN", "fake-gh-token")
+    # Suppress the *real* INDERES_OAUTH_TOKENS_JSON env var leaking from
+    # CI / shell — the cache_path we just wrote must be the input.
+    monkeypatch.delenv(oauth.CLOUD_TOKEN_ENV, raising=False)
+
+    # Set up: gist has *fresh* tokens (cron pushed them after rotating).
+    fresh = _fake_tokens_dict("fresh-access")
+    fresh["refresh_token"] = "fresh-rt"
+    fresh["expires_at"] = 9999999999.0  # still fresh
+
+    pull_calls: list[None] = []
+
+    def fake_pull():
+        pull_calls.append(None)
+        return oauth.TokenSet.from_dict(fresh)
+
+    # First refresh attempt fails (Keycloak says stale-rt is not active),
+    # representing the rotation race.
+    refresh_calls: list[oauth.TokenSet] = []
+
+    def fake_refresh(tokens):
+        refresh_calls.append(tokens)
+        return None  # always fails — cron already rotated everything
+
+    monkeypatch.setattr(oauth, "_pull_tokens_from_gist", fake_pull)
+    monkeypatch.setattr(oauth, "_refresh_tokens", fake_refresh)
+    # Don't trigger headless error path even if env detection says cloud.
+    monkeypatch.setenv("INDERES_AGENT_FORCE_INTERACTIVE", "1")
+
+    token = oauth.get_inderes_access_token()
+    assert token == "fresh-access"
+    # We tried the stale token first.
+    assert len(refresh_calls) == 1
+    assert refresh_calls[0].refresh_token == "stale-rt"
+    # We pulled the gist as recovery.
+    assert len(pull_calls) >= 1
+
+
+def test_refresh_failure_no_gist_no_recovery(isolated_cache, monkeypatch):
+    """Without gist configured, refresh failure still raises HeadlessAuthError.
+
+    The recovery path should only engage when gist mode is configured —
+    we don't want to silently swallow refresh failures in non-cloud setups.
+    """
+    stale = _fake_tokens_dict("stale-access")
+    stale["expires_at"] = 1.0
+    cache_path = oauth._token_cache_path()
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(stale))
+
+    monkeypatch.delenv("INDERES_TOKENS_GIST_ID", raising=False)
+    monkeypatch.delenv("INDERES_TOKENS_GH_TOKEN", raising=False)
+    monkeypatch.delenv(oauth.CLOUD_TOKEN_ENV, raising=False)
+    monkeypatch.setenv("STREAMLIT_RUNTIME_ENV", "cloud")  # force headless
+    monkeypatch.delenv("INDERES_AGENT_FORCE_INTERACTIVE", raising=False)
+    monkeypatch.setattr(oauth, "_refresh_tokens", lambda _: None)
+
+    with pytest.raises(oauth.HeadlessAuthError):
+        oauth.get_inderes_access_token()
