@@ -171,6 +171,22 @@ def refresh_tokens(refresh_token: str) -> dict | None:
     }
 
 
+def _write_step_summary(text: str) -> None:
+    """Append to GITHUB_STEP_SUMMARY (visible at top of the workflow run page).
+
+    Doesn't go to email — just makes the run page glanceable. Most useful
+    line is the current health state: "Session healthy" vs "Session dead".
+    """
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(text + "\n")
+    except Exception as exc:
+        _log(f"  step summary write failed: {exc}")
+
+
 def main() -> int:
     if not (GIST_ID and GH_TOKEN):
         _log("ERROR: missing INDERES_TOKENS_GIST_ID or INDERES_TOKENS_GH_TOKEN")
@@ -184,6 +200,11 @@ def main() -> int:
         _log(f"  pull from gist failed: {exc}")
         return 1
 
+    # Track session-health state across runs so we can email exactly once
+    # per ok→failed transition rather than spamming every 5 min while dead.
+    prior_status = current.get("_last_refresh_status", "unknown")
+    _log(f"  prior status: {prior_status}")
+
     rt = current.get("refresh_token")
     if not rt:
         _log("  gist has no refresh_token field; nothing to refresh")
@@ -191,13 +212,48 @@ def main() -> int:
     _log(f"  pulled tokens (rt prefix: {rt[:18]}…)")
 
     new_tokens = refresh_tokens(rt)
+    timestamp = datetime.now(timezone.utc).isoformat()
+
     if new_tokens is None:
-        # Refresh failed. Most common cause: SSO session terminated by
-        # Inderes (admin reset, refresh-token max-lifetime hit, user
-        # logged in elsewhere). No way to recover from cron — needs
-        # browser login on local machine.
-        _log("  refresh did not succeed — manual relogin may be needed")
-        # Exit 0 anyway so the workflow doesn't email-spam every 15 min.
+        # Refresh failed. Most common cause: SSO session terminated
+        # (idle timeout, max-session cap, admin reset, user logged in
+        # elsewhere). Cron can't recover — needs browser login locally.
+        _log("  refresh did not succeed — manual relogin needed")
+
+        # Persist the failed state in gist so the next run knows whether
+        # this is a *new* failure (notify) or ongoing (silent).
+        current["_last_refresh_status"] = "failed"
+        current["_last_refresh_at"] = timestamp
+        try:
+            push_to_gist(current)
+        except Exception as exc:
+            _log(f"  status push to gist failed: {exc}")
+
+        # Make the failure visible in the GitHub Actions UI:
+        # ::error:: annotation paints the run red and shows in the UI summary.
+        print(
+            "::error title=Inderes session dead::"
+            "Refresh failed and cron can't recover. "
+            "Run locally: python -m inderes_agent 'test' && "
+            "python scripts/sync_local_tokens_to_gist.py",
+            flush=True,
+        )
+        _write_step_summary(
+            f"## 🔴 Session DEAD\n\n"
+            f"Last attempt: `{timestamp}`. Refresh against Keycloak failed.\n\n"
+            f"**Recovery:**\n"
+            f"```bash\n"
+            f"python -m inderes_agent 'test'\n"
+            f"python scripts/sync_local_tokens_to_gist.py\n"
+            f"```\n"
+        )
+
+        # Exit 1 only on transition (ok → failed) so GitHub emails the
+        # maintainer once per session-death rather than every 5 min.
+        if prior_status == "ok":
+            _log("  state transition ok→failed — exiting 1 to trigger email")
+            return 1
+        _log("  ongoing failure (prior_status was already failed) — exit 0 to avoid spam")
         return 0
 
     _log(
@@ -210,6 +266,8 @@ def main() -> int:
     # is what keeps the session alive between real user queries.
     keepalive_mcp_call(new_tokens["access_token"])
 
+    new_tokens["_last_refresh_status"] = "ok"
+    new_tokens["_last_refresh_at"] = timestamp
     try:
         push_to_gist(new_tokens)
     except Exception as exc:
@@ -217,6 +275,19 @@ def main() -> int:
         return 1
 
     _log("  pushed fresh tokens to gist")
+    _write_step_summary(
+        f"## 🟢 Session healthy\n\n"
+        f"Last refresh: `{timestamp}`.\n\n"
+        f"- Keycloak refresh: ✓\n"
+        f"- MCP keepalive: ✓\n"
+        f"- Gist push: ✓\n"
+    )
+    if prior_status == "failed":
+        _log("  recovered from previous failure")
+        _write_step_summary(
+            "\n_Recovered from previous failure — manual relogin must "
+            "have happened._\n"
+        )
     return 0
 
 
