@@ -10,9 +10,23 @@ name: Refresh Inderes tokens
 #   INDERES_TOKENS_GH_TOKEN  - GitHub PAT with Gists: Read+Write scope
 #
 # Cadence rationale:
-#   Keycloak's default SSO-session idle-timeout is 30 min. Refreshing every
-#   15 min keeps the session continuously active with a comfortable buffer.
-#   ~96 runs/day, ~30s each → ~50 min/day → free tier on a public repo.
+#   Keycloak's SSO-session idle-timeout is 30 min. Refreshing every 5 min
+#   keeps the session continuously active even when GitHub Actions skips
+#   several scheduled runs (which is common on free-tier public repos at
+#   peak load — observed gaps of 30-60 min, occasional 4 h gaps overnight).
+#   At */5, GitHub would have to skip 6 runs in a row before we lose the
+#   idle window.
+#
+#   Caveat: Keycloak also enforces an SSO-session MAX timer (wall-clock
+#   cap, typically 8-12 h, independent of refresh activity). When that
+#   ticks over, the cron sees `error: "Session not active"` and can't
+#   recover — manual browser relogin is required. After relogging in,
+#   propagate the fresh tokens to the gist with:
+#     python scripts/sync_local_tokens_to_gist.py
+#
+#   ~288 runs/day, ~30 s each → ~2.5 h/day. GitHub Actions on public
+#   repos is free with no minute cap, so cadence is constrained only by
+#   "don't be a bad neighbor".
 #
 # Manual trigger: workflow_dispatch lets you fire one off on demand from
 # the Actions tab — useful right after a fresh local relogin to verify the
@@ -20,7 +34,7 @@ name: Refresh Inderes tokens
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -28,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Don't queue up multiple runs if a previous one is slow — we'll catch
-    # the next 15-min slot.
+    # the next 5-min slot.
     concurrency:
       group: refresh-inderes-tokens
       cancel-in-progress: false
