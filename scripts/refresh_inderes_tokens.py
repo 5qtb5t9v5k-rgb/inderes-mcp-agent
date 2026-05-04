@@ -40,6 +40,7 @@ GH_TOKEN = os.environ.get("INDERES_TOKENS_GH_TOKEN")
 TOKEN_ENDPOINT = (
     "https://sso.inderes.fi/auth/realms/Inderes/protocol/openid-connect/token"
 )
+MCP_URL = "https://mcp.inderes.com"
 CLIENT_ID = "inderes-mcp"
 GIST_FILENAME = "tokens.json"
 
@@ -82,6 +83,64 @@ def push_to_gist(tokens: dict) -> None:
         timeout=15,
     )
     r.raise_for_status()
+
+
+def keepalive_mcp_call(access_token: str) -> bool:
+    """Make a minimal authenticated MCP request to count as real API activity.
+
+    Hypothesis (BACKLOG: extending cron beyond /token-only): Keycloak's idle
+    timer might track real API consumption separately from refresh_token grant
+    calls. By hitting the MCP server with a single authenticated request after
+    each refresh, we (a) cause Keycloak to introspect the access_token, and
+    (b) generate "real" downstream activity so the SSO session sees a use
+    that's indistinguishable from a normal user query.
+
+    Sends an MCP `initialize` JSON-RPC request — the lightest valid call. We
+    don't follow up with `notifications/initialized`, so the server-side
+    session is briefly orphaned, but the auth check has already happened.
+
+    Logs status. Never raises — keepalive is best-effort diagnostic; if it
+    fails we still want to push the refreshed tokens to the gist. If after
+    a few days of running with this we still see "Session not active" deaths
+    overnight, the answer is "no, /token alone isn't worse than MCP calls"
+    and we can revert this and look at scheduler reliability (option B in
+    the BACKLOG).
+    """
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {
+                "name": "inderes-tokens-cron-keepalive",
+                "version": "0.1",
+            },
+        },
+    }
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json, text/event-stream",
+        "Content-Type": "application/json",
+    }
+    try:
+        r = httpx.post(MCP_URL, json=payload, headers=headers, timeout=15)
+    except Exception as exc:
+        _log(f"  keepalive POST failed: {exc}")
+        return False
+
+    # 401/403 = auth not accepted (the whole point we're testing).
+    # Anything else means Keycloak introspected the token successfully —
+    # which is the activity we want.
+    if r.status_code in (401, 403):
+        _log(
+            f"  keepalive auth rejected status={r.status_code} "
+            f"body={r.text[:160]}"
+        )
+        return False
+    _log(f"  keepalive auth accepted status={r.status_code}")
+    return True
 
 
 def refresh_tokens(refresh_token: str) -> dict | None:
@@ -144,6 +203,12 @@ def main() -> int:
     _log(
         f"  refresh OK (new rt prefix: {new_tokens['refresh_token'][:18]}…)"
     )
+
+    # Keepalive: hit MCP with the fresh access_token before we do anything
+    # else. If Keycloak's idle timer tracks /token use and MCP API use
+    # equivalently, this is redundant; if it tracks them separately, this
+    # is what keeps the session alive between real user queries.
+    keepalive_mcp_call(new_tokens["access_token"])
 
     try:
         push_to_gist(new_tokens)
