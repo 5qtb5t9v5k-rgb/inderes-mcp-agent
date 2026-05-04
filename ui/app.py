@@ -246,73 +246,133 @@ ASSISTANT_AVATAR = "🔶"
 
 DEMO_VIDEO_URL = "https://www.youtube.com/watch?v=2lw6lC2ho_c"
 
+# Help-request counter is persisted as a separate file in the same gist
+# that already mirrors tokens.json, so we don't need a second secret.
+HELP_REQUESTS_GIST_FILE = "help_requests.json"
 
-def _send_help_request(message: str) -> tuple[bool, str]:
-    """Send a 'help me' notification to the operator via Resend.
 
-    Returns (ok, reason). If ok is False, `reason` is a short string
-    suitable for showing to the user (no internal details).
+def _read_help_request_state() -> dict:
+    """Read the recovery-requests counter from the gist mirror.
+
+    Best-effort: if the gist isn't configured, the file doesn't exist,
+    or the GitHub API hiccups, returns zeros so the UI still renders.
     """
-    api_key = os.environ.get("RESEND_API_KEY", "").strip()
-    notify_to = os.environ.get("HELP_REQUEST_NOTIFY_TO", "").strip()
-    sender = os.environ.get(
-        "HELP_REQUEST_FROM", "onboarding@resend.dev"
-    ).strip()
-
-    if not api_key:
-        log.warning("help_request_no_resend_api_key")
-        return False, "ilmoituskanava ei käytössä"
-    if not notify_to:
-        log.warning("help_request_no_notify_to")
-        return False, "vastaanottaja-osoitetta ei ole asetettu"
-
-    from datetime import datetime, timezone
-    timestamp = datetime.now(timezone.utc).isoformat()
-
-    body_lines = [
-        "Joku osui Inderes//Agentin auth-vanhentumisseinään ja painoi",
-        "'Pyydä apua' -nappia.",
-        "",
-        f"Aika (UTC): {timestamp}",
-    ]
-    if (message or "").strip():
-        body_lines += ["", "Viesti vierailijalta:", message.strip()]
-    else:
-        body_lines += ["", "(ei viestiä jätetty)"]
-    body_lines += [
-        "",
-        "Recovery: aja paikallisesti `bash scripts/relogin.sh`.",
-    ]
+    gist_id = os.environ.get("INDERES_TOKENS_GIST_ID", "").strip()
+    gh_token = os.environ.get("INDERES_TOKENS_GH_TOKEN", "").strip()
+    if not (gist_id and gh_token):
+        return {"count": 0, "last_at": None}
 
     try:
         import httpx
-        r = httpx.post(
-            "https://api.resend.com/emails",
+        r = httpx.get(
+            f"https://api.github.com/gists/{gist_id}",
             headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "from": sender,
-                "to": [notify_to],
-                "subject": "🔴 Inderes//Agent — pyydetään apua",
-                "text": "\n".join(body_lines),
+                "Authorization": f"token {gh_token}",
+                "Accept": "application/vnd.github+json",
             },
             timeout=10.0,
         )
+        if r.status_code != 200:
+            return {"count": 0, "last_at": None}
+        files = r.json().get("files", {}) or {}
+        content = (files.get(HELP_REQUESTS_GIST_FILE) or {}).get("content")
+        if not content:
+            return {"count": 0, "last_at": None}
+        data = json.loads(content)
+        return {
+            "count": int(data.get("count", 0)),
+            "last_at": data.get("last_request_at"),
+        }
     except Exception as exc:
-        log.warning("help_request_send_exception %s", exc)
-        return False, "verkkovirhe — yritä myöhemmin uudelleen"
+        log.warning("help_request_state_read_failed %s", exc)
+        return {"count": 0, "last_at": None}
 
-    if r.status_code in (200, 202):
-        log.info("help_request_email_sent status=%d", r.status_code)
-        return True, "ok"
-    log.warning(
-        "help_request_email_failed status=%d body=%s",
-        r.status_code,
-        r.text[:200],
-    )
-    return False, "viestin lähetys epäonnistui"
+
+def _record_help_request() -> tuple[bool, dict]:
+    """Increment the counter and push back to the gist. Returns (ok, state).
+
+    On any failure returns (False, current_state_or_zeros) so the caller
+    can show a soft "yritä uudelleen" hint without losing the prior
+    count from the UI.
+    """
+    gist_id = os.environ.get("INDERES_TOKENS_GIST_ID", "").strip()
+    gh_token = os.environ.get("INDERES_TOKENS_GH_TOKEN", "").strip()
+    if not (gist_id and gh_token):
+        return False, {"count": 0, "last_at": None}
+
+    current = _read_help_request_state()
+    from datetime import datetime, timezone
+    new_payload = {
+        "count": current["count"] + 1,
+        "last_request_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        import httpx
+        r = httpx.patch(
+            f"https://api.github.com/gists/{gist_id}",
+            headers={
+                "Authorization": f"token {gh_token}",
+                "Accept": "application/vnd.github+json",
+                "Content-Type": "application/json",
+            },
+            json={
+                "files": {
+                    HELP_REQUESTS_GIST_FILE: {
+                        "content": json.dumps(new_payload, indent=2),
+                    },
+                },
+            },
+            timeout=10.0,
+        )
+        if r.status_code in (200, 201):
+            return True, {
+                "count": new_payload["count"],
+                "last_at": new_payload["last_request_at"],
+            }
+        log.warning(
+            "help_request_state_write_failed status=%d body=%s",
+            r.status_code,
+            r.text[:200],
+        )
+    except Exception as exc:
+        log.warning("help_request_state_write_exception %s", exc)
+    return False, current
+
+
+def _format_relative_fi(iso_ts: str | None) -> str:
+    """Format an ISO timestamp as a Finnish-language relative-time string."""
+    if not iso_ts:
+        return "ei vielä yhtään"
+    try:
+        from datetime import datetime, timezone
+        ts = datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
+        secs = (datetime.now(timezone.utc) - ts).total_seconds()
+        if secs < 60:
+            return "juuri äsken"
+        if secs < 3600:
+            return f"{int(secs // 60)} min sitten"
+        if secs < 86400:
+            return f"{int(secs // 3600)} h sitten"
+        return f"{int(secs // 86400)} pv sitten"
+    except Exception:
+        return ""
+
+
+def _get_cached_help_state(max_age_s: int = 30) -> dict:
+    """Get the help-request state, caching for max_age_s seconds in
+    session_state. Avoids hammering the gist API on every Streamlit
+    rerun (the page rerenders every time the user interacts with
+    anything, including hovering certain components).
+    """
+    cache = st.session_state.get("_help_state_cache")
+    cache_ts = st.session_state.get("_help_state_cache_ts", 0.0)
+    if cache is not None and (time.time() - cache_ts) < max_age_s:
+        return cache
+    fresh = _read_help_request_state()
+    st.session_state["_help_state_cache"] = fresh
+    st.session_state["_help_state_cache_ts"] = time.time()
+    return fresh
 
 
 def _render_auth_expired() -> None:
@@ -321,22 +381,21 @@ def _render_auth_expired() -> None:
     The Streamlit app sits behind a password gate, but anything we render
     is potentially visible to whoever knows the password (or anyone who
     eventually gets past it). So this message doesn't expose internal
-    paths, scripts, repo names, or implementation details. The owner
-    knows what "autentikoi yhteys uudelleen" means in their setup;
-    a random visitor gets a clear "service unavailable" signal.
+    paths, scripts, repo names, or implementation details.
 
-    Adds two affordances on top of the bare error:
-    - An embedded demo video so a first-time visitor can still see
-      what the tool does even when it can't run live.
-    - A "Pyydä apua" button that emails the operator via Resend so
-      the visitor can ask for the agent to be brought back up.
+    Adds three affordances on top of the bare error:
+    - An embedded demo video so a first-time visitor can still see what
+      the tool does even when it can't run live.
+    - A "Pyydä apua" button that increments a counter persisted in the
+      gist mirror — operator sees the counter rise and knows people are
+      waiting.
+    - The counter itself rendered as a metric so visitors get social
+      proof ("you're not the first") and the operator gets a glanceable
+      activity gauge.
 
-    Anti-spam: per-session_state flag prevents re-sending within the
-    same browser session. Cross-session abuse mitigation is left to
-    Resend's own rate-limiting + the password gate.
-
-    The full HeadlessAuthError text is still in the Streamlit Cloud
-    server logs for debugging — just not in the user-facing UI.
+    Anti-spam: per-session_state flag prevents re-clicking within the
+    same browser session. Cross-session abuse is mitigated by the
+    password gate; this is a hobby-project tradeoff.
     """
     st.error(
         "🔴  **Inderes-yhteys vanhentunut.**\n\n"
@@ -348,43 +407,58 @@ def _render_auth_expired() -> None:
     try:
         st.video(DEMO_VIDEO_URL)
     except Exception as exc:
-        # If the embed fails, at least surface the link.
         log.warning("demo_video_embed_failed %s", exc)
         st.markdown(f"[Katso demo YouTubessa]({DEMO_VIDEO_URL})")
 
     st.markdown("---")
 
-    if st.session_state.get("_help_request_sent"):
-        st.success(
-            "✓ Kiitos viestistä — laitetaan agentti taas pystyyn "
-            "mahdollisimman pian."
-        )
-        return
+    state = _get_cached_help_state()
 
-    st.markdown(
-        "**Haluatko että agentti laitetaan takaisin pystyyn?** "
-        "Lähetä viesti — saan ilmoituksen ja käyn fixaamassa."
-    )
-    msg = st.text_area(
-        "Viestisi (valinnainen)",
-        placeholder=(
-            "Esim. 'Haluan kokeilla työkalua Sampon analyysiin' — "
-            "tai jätä tyhjäksi"
-        ),
-        max_chars=500,
-        key="_help_request_msg",
-        label_visibility="collapsed",
-    )
-    if st.button("📧 Pyydä apua", type="primary", use_container_width=True):
-        ok, reason = _send_help_request(msg)
-        if ok:
-            st.session_state["_help_request_sent"] = True
-            st.rerun()
-        else:
-            st.warning(
-                f"Hups, viestin lähetys ei mennyt läpi ({reason}). "
-                "Yritä uudelleen hetken päästä."
+    left, right = st.columns([3, 2], vertical_alignment="center")
+
+    with left:
+        if st.session_state.get("_help_request_sent"):
+            st.success(
+                "✓ Kiitos pyynnöstä — laitetaan agentti taas pystyyn "
+                "mahdollisimman pian.\n\n"
+                f"Olit pyyntö **#{state['count']}** agentin elinaikana."
             )
+        else:
+            st.markdown(
+                "**Haluatko että agentti laitetaan takaisin pystyyn?**\n\n"
+                "Klikkaa nappia — pyyntösi näkyy laskurissa, ja korjaan "
+                "tilanteen kun huomaan."
+            )
+            if st.button(
+                "📧 Pyydä apua",
+                type="primary",
+                use_container_width=True,
+            ):
+                ok, new_state = _record_help_request()
+                if ok:
+                    st.session_state["_help_request_sent"] = True
+                    st.session_state["_help_state_cache"] = new_state
+                    st.session_state["_help_state_cache_ts"] = time.time()
+                    st.rerun()
+                else:
+                    st.warning(
+                        "Pyynnön tallennus ei mennyt läpi. "
+                        "Yritä hetken päästä uudelleen."
+                    )
+
+    with right:
+        st.metric(
+            label="Apupyyntöjä yhteensä",
+            value=str(state["count"]),
+            help=(
+                "Kuinka monta kertaa joku on klikannut 'Pyydä apua' "
+                "-nappia agentin elinaikana."
+            ),
+        )
+        if state["last_at"]:
+            st.caption(f"viimeisin: {_format_relative_fi(state['last_at'])}")
+        else:
+            st.caption("ei vielä pyyntöjä")
 
 
 # ---------------------------------------------------------------------------
