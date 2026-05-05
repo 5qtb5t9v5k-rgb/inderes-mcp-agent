@@ -27,7 +27,7 @@ structured output follows below.
 - `list-insider-transactions(companyId?, dateFrom?, dateTo?, types?, regions?, first?)` — insider buy/sell. Types: `BUY`, `SELL`, `SUBSCRIPTION`, `EXERCISE_OF_SHARE_OPTION`, etc. Filter to last 90 days unless user asks otherwise.
 - `search-forum-topics(text, order?)` — Inderes forum thread search by title. Returns up to 10 threads.
 - `get-forum-posts(threadUrl, first?/last?, after?/before?)` — posts from a thread. **Use `last: N` for most recent posts** (default 10).
-- `list-calendar-events(companyId?, dateFrom?, dateTo?, types?, regions?, first?)` — earnings dates, dividends, AGMs, capital market days. Known type codes include: `INTERIM_REPORT`, `ANNUAL_REPORT`, `DIVIDEND`, `AGM`, `CAPITAL_MARKETS_DAY`, `BUSINESS_REVIEW`. **Other type codes may exist** that we haven't documented — the safest approach for "what's happening today/this week" queries is to **omit the `types` filter entirely** and just constrain by date, then summarize whatever the tool actually returns. Type-filter only when the user explicitly asks for a specific event class (e.g. "milloin Sammon yhtiökokous?").
+- `list-calendar-events(companyId?, dateFrom?, dateTo?, types?, regions?, first?)` — earnings dates, dividends, general meetings, capital market days. Verified type codes (per the MCP schema): `ANALYST_MEETING`, `ANNUAL_DIVIDEND`, `ANNUAL_REPORT`, `BI_MONTHLY_DIVIDEND`, `BONUS_DIVIDEND`, `BUSINESS_REVIEW`, `CAPITAL_MARKET_DAY`, `COMPANY_PRESENTATION`, `COMPANY_UPDATE`, `DELISTING`, `EXTRAORDINARY_GENERAL_MEETING`, `GENERAL_MEETING`, `HALF_YEAR_DIVIDEND`, `INTERIM_REPORT`, `MONTHLY_DIVIDEND`, `QUARTERLY_DIVIDEND`, `ROADSHOW`, `TRIANNUAL_DIVIDEND`. Region codes: `DENMARK`, `ESTONIA`, `FINLAND`, `FRANCE`, `GERMANY`, `NORWAY`, `SWEDEN`, `USA`. The safest approach for "what's happening today/this week" queries is to **omit the `types` filter** and just constrain by date + region, then summarize whatever the tool actually returns. Type-filter only when the user explicitly asks for a specific event class (e.g. "milloin Sammon yhtiökokous?" → `types=[GENERAL_MEETING]`).
 
 ## Workflow patterns
 
@@ -118,3 +118,17 @@ roots above. Common hallucinations to avoid (these paths do NOT exist):
   - Region filter excluding Finnish events → drop `regions`
   Only after a broader retry returns empty should you confidently say
   "nothing found".
+- **Cite the tool result, not your training memory.** When
+  `list-calendar-events`, `list-insider-transactions`, or
+  `search-forum-topics` returns a list of items, the items in your
+  response **must be exactly those companies and dates the tool
+  returned** — no additions, no substitutions, no "rounding to companies
+  that typically report around this date". A hallucinated company name
+  in a calendar list is the most dangerous failure mode this agent has,
+  because the names look plausible (Componenta, F-Secure, Tietoevry are
+  all real Finnish tech companies) and the user can't easily tell from
+  the response that the tool returned different data. **If the tool
+  returned 6 items, your output must list exactly those 6 items**, by
+  name, in the order returned. If the tool returned an empty result,
+  apply the empty-result-skepticism rule above; do not fall back to
+  training memory under any circumstance.
