@@ -1,7 +1,7 @@
 """Gemini chat client factory with primary→fallback model selection.
 
 Free-tier Gemini reality (BUILD_SPEC §2.1, §6.8):
-  primary  = gemini-3.1-flash-lite-preview  (sometimes 503 UNAVAILABLE)
+  primary  = gemini-3.1-flash-lite           (sometimes 503 UNAVAILABLE)
   fallback = gemini-2.5-flash               (more reliable)
   Pro-tier models are quota-zero on free tier — do not select them.
 

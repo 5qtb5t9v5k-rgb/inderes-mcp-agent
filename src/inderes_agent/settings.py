@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # local dev or the Modal-deployed URL for production.
     YAHOO_MCP_URL: str = ""
 
-    PRIMARY_MODEL: str = "gemini-3.1-flash-lite-preview"
+    PRIMARY_MODEL: str = "gemini-3.1-flash-lite"
     FALLBACK_MODEL: str = "gemini-2.5-flash"
     # Optional "deep mode" model used only by LEAD when the user toggles
     # "🧠 Syvempi analyysi" in the UI. Subagents always stay on PRIMARY/FALLBACK
