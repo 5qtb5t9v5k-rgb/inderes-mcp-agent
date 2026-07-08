@@ -1,3 +1,18 @@
+# DISABLED (renamed from .yml to .yml.disabled) — 2026-07-08.
+# GitHub Actions only picks up *.yml / *.yaml files in this directory, so
+# this file no longer runs: the internal `schedule:` trigger is inert, and
+# cron-job.org's `workflow_dispatch` API calls now 404 (the workflow_id
+# `refresh-inderes-tokens.yml` no longer resolves to anything).
+#
+# Reason: session login/refresh is now handled by a separate Playwright
+# automation (the `inderes-mcp-auto-relogin` sidecar), which supersedes
+# this cron's job of keeping the Keycloak SSO session alive.
+#
+# To re-enable: `git mv refresh-inderes-tokens.yml.disabled
+# refresh-inderes-tokens.yml`, remove this banner, commit. Also remember
+# cron-job.org's job (external, not in this repo) needs a matching
+# pause/resume on their dashboard if it was left running.
+
 name: Refresh Inderes tokens
 
 # Periodic OAuth refresh against Inderes' Keycloak. Pulls latest tokens from
